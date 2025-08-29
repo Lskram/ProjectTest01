@@ -19,8 +19,8 @@ class UserSettingsAdapter extends TypeAdapter<UserSettings> {
     return UserSettings(
       notificationsEnabled: fields[0] as bool,
       intervalMinutes: fields[1] as int,
-      workStartTime: fields[2] as TimeOfDay,
-      workEndTime: fields[3] as TimeOfDay,
+      workStartTime: fields[2] as TimeOfDay?,
+      workEndTime: fields[3] as TimeOfDay?,
       workDays: (fields[4] as List).cast<int>(),
       breakPeriods: (fields[5] as List).cast<BreakPeriod>(),
       soundEnabled: fields[6] as bool,

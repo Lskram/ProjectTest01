@@ -92,6 +92,6 @@ class Treatment extends HiveObject {
 
   @override
   String toString() {
-    return 'Treatment{id: $id, name: $name, duration: ${durationText}}';
+    return 'Treatment{id: $id, name: $name, duration: $durationText}';
   }
 }

@@ -40,8 +40,8 @@ class UserSettings extends HiveObject {
   UserSettings({
     this.notificationsEnabled = true,
     this.intervalMinutes = 60,
-    this.workStartTime = const TimeOfDay(hour: 9, minute: 0),
-    this.workEndTime = const TimeOfDay(hour: 18, minute: 0),
+    TimeOfDay? workStartTime, // ✅ เปลี่ยนเป็น nullable
+    TimeOfDay? workEndTime, // ✅ เปลี่ยนเป็น nullable
     this.workDays = const [1, 2, 3, 4, 5], // จ-ศ
     this.breakPeriods = const [],
     this.soundEnabled = true,
@@ -49,7 +49,10 @@ class UserSettings extends HiveObject {
     this.maxSnoozeCount = 3,
     this.snoozeOptions = const [5, 15, 30],
     this.selectedPainPointIds = const [],
-  });
+  })  : workStartTime = workStartTime ??
+            TimeOfDay(hour: 9, minute: 0), // ✅ ใช้ initializer list
+        workEndTime = workEndTime ??
+            TimeOfDay(hour: 18, minute: 0); // ✅ ใช้ initializer list
 
   UserSettings copyWith({
     bool? notificationsEnabled,
@@ -98,7 +101,8 @@ class TimeOfDay extends HiveObject {
   @HiveField(1)
   final int minute;
 
-  const TimeOfDay({
+  TimeOfDay({
+    // ✅ ลบ const
     required this.hour,
     required this.minute,
   });
@@ -125,6 +129,18 @@ class TimeOfDay extends HiveObject {
 
   @override
   String toString() => displayTime;
+
+  // เพิ่ม equality operators สำหรับการเปรียบเทียบ
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TimeOfDay &&
+          runtimeType == other.runtimeType &&
+          hour == other.hour &&
+          minute == other.minute;
+
+  @override
+  int get hashCode => hour.hashCode ^ minute.hashCode;
 }
 
 // Helper class สำหรับช่วงเวลาพัก
@@ -185,4 +201,19 @@ class BreakPeriod extends HiveObject {
   String toString() {
     return 'BreakPeriod{$name: ${startTime.displayTime}-${endTime.displayTime}}';
   }
+
+  // เพิ่ม equality operators
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BreakPeriod &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          startTime == other.startTime &&
+          endTime == other.endTime &&
+          isActive == other.isActive;
+
+  @override
+  int get hashCode =>
+      name.hashCode ^ startTime.hashCode ^ endTime.hashCode ^ isActive.hashCode;
 }
