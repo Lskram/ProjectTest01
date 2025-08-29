@@ -1,0 +1,7 @@
+targets:
+  $default:
+    builders:
+      hive_generator|hive_generator:
+        options:
+          # Generate adapters in same directory as models
+          part_name_source: snake_case
