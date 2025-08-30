@@ -1,17 +1,50 @@
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart'; // เพิ่ม import นี้
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
+import '../services/database_service.dart';
 
 class PermissionService {
   static PermissionService? _instance;
   static PermissionService get instance => _instance ??= PermissionService._();
   PermissionService._();
 
-  /// เช็คและขอ permissions ทั้งหมดที่ต้องการ
+  // 🔥 FIX 1.1: เช็คว่าเคยขออนุญาติแล้วหรือยัง
+  bool get hasRequestedPermissions {
+    final settings = DatabaseService.instance.getUserSettings();
+    return settings.hasRequestedPermissions;
+  }
+
+  /// เช็คและขอ permissions ทั้งหมดที่ต้องการ (เฉพาะครั้งแรก)
   Future<bool> requestAllPermissions() async {
+    // 🔥 FIX 1.1: เช็คก่อนว่าเคยขอแล้วหรือยัง
+    if (hasRequestedPermissions) {
+      debugPrint('✅ Permissions already requested previously');
+      return await arePermissionsGranted();
+    }
+
+    debugPrint('🔐 First time requesting permissions...');
     final results = await _requestPermissions();
-    return results.values.every((status) => status == PermissionStatus.granted);
+    final allGranted = results.values.every((status) => status == PermissionStatus.granted);
+
+    // 🔥 FIX 1.1: บันทึกว่าได้ขออนุญาติแล้ว
+    await _markPermissionsAsRequested();
+
+    return allGranted;
+  }
+
+  /// บันทึกว่าได้ขออนุญาติแล้ว
+  Future<void> _markPermissionsAsRequested() async {
+    try {
+      final currentSettings = DatabaseService.instance.getUserSettings();
+      final updatedSettings = currentSettings.copyWith(
+        hasRequestedPermissions: true,
+      );
+      await DatabaseService.instance.saveUserSettings(updatedSettings);
+      debugPrint('✅ Marked permissions as requested');
+    } catch (e) {
+      debugPrint('❌ Error marking permissions as requested: $e');
+    }
   }
 
   /// ขอ permissions แต่ละตัว
@@ -22,12 +55,24 @@ class PermissionService {
     permissions.add(Permission.notification);
 
     // Schedule exact alarm (Android 12+)
-    if (await Permission.scheduleExactAlarm.isDenied) {
-      permissions.add(Permission.scheduleExactAlarm);
+    if (GetPlatform.isAndroid) {
+      if (await Permission.scheduleExactAlarm.isDenied) {
+        permissions.add(Permission.scheduleExactAlarm);
+      }
     }
 
     // Request permissions
     return await permissions.request();
+  }
+
+  /// เช็คว่า permissions ทั้งหมดได้รับอนุญาติหรือไม่
+  Future<bool> arePermissionsGranted() async {
+    final notificationGranted = await Permission.notification.isGranted;
+    final exactAlarmGranted = GetPlatform.isAndroid 
+        ? await Permission.scheduleExactAlarm.isGranted 
+        : true;
+
+    return notificationGranted && exactAlarmGranted;
   }
 
   /// เช็ค permission เฉพาะ notification
@@ -55,7 +100,7 @@ class PermissionService {
     return status == PermissionStatus.granted;
   }
 
-  /// เช็ค permissions ทั้งหมด
+  /// เช็ค permissions ทั้งหมดพร้อมรายละเอียด
   Future<Map<String, bool>> checkAllPermissions() async {
     return {
       'notification': await checkNotificationPermission(),
@@ -64,19 +109,49 @@ class PermissionService {
   }
 
   /// แสดง dialog อธิบาย permission
-  Future<bool> showPermissionDialog(
-      String permissionName, String reason) async {
+  Future<bool> showPermissionDialog(String permissionName, String reason) async {
     return await Get.dialog<bool>(
           AlertDialog(
-            title: Text('ต้องการอนุญาต $permissionName'),
-            content: Text(reason),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Row(
+              children: [
+                Icon(
+                  Icons.security,
+                  color: Colors.blue.shade600,
+                  size: 28,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'ต้องการอนุญาต $permissionName',
+                    style: const TextStyle(fontSize: 18),
+                  ),
+                ),
+              ],
+            ),
+            content: Text(
+              reason,
+              style: const TextStyle(height: 1.5),
+            ),
             actions: [
               TextButton(
                 onPressed: () => Get.back(result: false),
-                child: const Text('ไม่อนุญาต'),
+                child: Text(
+                  'ไม่อนุญาต',
+                  style: TextStyle(color: Colors.grey.shade600),
+                ),
               ),
-              TextButton(
+              ElevatedButton(
                 onPressed: () => Get.back(result: true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue.shade600,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
                 child: const Text('อนุญาต'),
               ),
             ],
@@ -89,20 +164,45 @@ class PermissionService {
   void showPermissionSettingsDialog() {
     Get.dialog(
       AlertDialog(
-        title: const Text('ต้องการอนุญาต'),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: Row(
+          children: [
+            Icon(
+              Icons.settings,
+              color: Colors.orange.shade600,
+              size: 28,
+            ),
+            const SizedBox(width: 12),
+            const Text('ต้องการอนุญาต'),
+          ],
+        ),
         content: const Text(
-            'แอปต้องการอนุญาตการแจ้งเตือนเพื่อให้บริการได้อย่างสมบูรณ์\n'
-            'กรุณาไปที่การตั้งค่าเพื่ออนุญาต'),
+          'แอปต้องการอนุญาตการแจ้งเตือนเพื่อให้บริการได้อย่างสมบูรณ์\n\n'
+          'กรุณาไปที่การตั้งค่าเพื่ออนุญาต',
+          style: TextStyle(height: 1.5),
+        ),
         actions: [
           TextButton(
             onPressed: () => Get.back(),
-            child: const Text('ยกเลิก'),
+            child: Text(
+              'ยกเลิก',
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
           ),
-          TextButton(
+          ElevatedButton(
             onPressed: () {
               Get.back();
               openAppSettings();
             },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange.shade600,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
             child: const Text('ไปตั้งค่า'),
           ),
         ],
@@ -116,12 +216,20 @@ class PermissionService {
     return permissions.values.every((granted) => granted);
   }
 
-  /// ขอ permissions พร้อมแสดงคำอธิบาย
+  /// ขอ permissions พร้อมแสดงคำอธิบาย (เฉพาะครั้งแรก)
   Future<bool> requestPermissionsWithExplanation() async {
-    // เช็คก่อนว่ามีอนุญาตแล้วหรือไม่
-    if (await arePermissionsReady()) return true;
+    // 🔥 FIX 1.1: เช็คว่าเคยขอแล้วหรือยัง
+    if (hasRequestedPermissions) {
+      // ถ้าเคยขอแล้ว แค่เช็คสถานะปัจจุบัน
+      final isReady = await arePermissionsReady();
+      if (!isReady) {
+        // ถ้ายังไม่ได้อนุญาต แสดง dialog ให้ไปตั้งค่า
+        showPermissionSettingsDialog();
+      }
+      return isReady;
+    }
 
-    // อธิบายเหตุผล
+    // ถ้ายังไม่เคยขอ ให้แสดง dialog อธิบาย
     final shouldRequest = await showPermissionDialog(
       'การแจ้งเตือน',
       'แอปต้องการอนุญาตการแจ้งเตือนเพื่อเตือนให้คุณออกกำลังกายในเวลาที่เหมาะสม\n\n'
@@ -131,7 +239,11 @@ class PermissionService {
           '• สร้างนิสัยดูแลสุขภาพ',
     );
 
-    if (!shouldRequest) return false;
+    if (!shouldRequest) {
+      // ผู้ใช้ไม่อนุญาต แต่ยังต้องบันทึกว่าได้ขอแล้ว
+      await _markPermissionsAsRequested();
+      return false;
+    }
 
     // ขอ permissions
     final granted = await requestAllPermissions();
@@ -145,12 +257,31 @@ class PermissionService {
     return true;
   }
 
+  /// 🔥 FIX 1.1: รีเซ็ตสถานะการขออนุญาติ (สำหรับ testing)
+  Future<void> resetPermissionState() async {
+    if (!kDebugMode) return; // เฉพาะ debug mode
+    
+    try {
+      final currentSettings = DatabaseService.instance.getUserSettings();
+      final updatedSettings = currentSettings.copyWith(
+        hasRequestedPermissions: false,
+      );
+      await DatabaseService.instance.saveUserSettings(updatedSettings);
+      debugPrint('🔄 Permission state reset (debug only)');
+    } catch (e) {
+      debugPrint('❌ Error resetting permission state: $e');
+    }
+  }
+
   /// Debug: แสดงสถานะ permissions ทั้งหมด
   Future<void> debugPermissionStatus() async {
-    if (!kDebugMode) return; // ✅ แก้ไข: ใช้ kDebugMode แทน GetPlatform.isDebug
+    if (!kDebugMode) return;
 
     final permissions = await checkAllPermissions();
+    final hasRequested = hasRequestedPermissions;
+
     debugPrint('=== Permission Status ===');
+    debugPrint('Has Requested Before: ${hasRequested ? "✅" : "❌"}');
     permissions.forEach((name, granted) {
       debugPrint('$name: ${granted ? "✅ Granted" : "❌ Denied"}');
     });

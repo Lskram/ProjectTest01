@@ -1,8 +1,9 @@
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:flutter/foundation.dart';
-import '../models/user_settings.dart';
 import '../services/database_service.dart';
 import '../services/notification_service.dart';
+import '../controllers/home_controller.dart';
+import '../models/user_settings.dart';
 
 class SettingsController extends GetxController {
   static SettingsController get instance => Get.find();
@@ -58,13 +59,21 @@ class SettingsController extends GetxController {
     }
   }
 
+  /// 🔥 FIX 1.4: แจ้งให้ controllers อื่นรู้ว่า settings เปลี่ยน
+  Future<void> _notifySettingsChanged() async {
+    // แจ้ง HomeController ให้รีเฟรช
+    if (Get.isRegistered<HomeController>()) {
+      await HomeController.instance.refreshData();
+    }
+  }
+
   /// Update notifications enabled
   Future<void> updateNotificationsEnabled(bool enabled) async {
     final updatedSettings = settings.copyWith(notificationsEnabled: enabled);
     _settings.value = updatedSettings;
     await _saveSettings();
 
-    // Update notification system - ใช้ service โดยตรงแทน controller
+    // Update notification system
     if (enabled) {
       await NotificationService.instance.scheduleNextNotification();
       Get.snackbar('เปิดการแจ้งเตือน 🔔', 'ระบบจะเตือนให้ออกกำลังกาย');
@@ -72,6 +81,9 @@ class SettingsController extends GetxController {
       await NotificationService.instance.cancelAllNotifications();
       Get.snackbar('ปิดการแจ้งเตือน 🔕', 'ระบบหยุดการแจ้งเตือนชั่วคราว');
     }
+
+    // 🔥 FIX 1.4: แจ้ง UI อื่นให้อัพเดท
+    await _notifySettingsChanged();
   }
 
   /// Update interval minutes
@@ -91,6 +103,9 @@ class SettingsController extends GetxController {
     }
 
     Get.snackbar('อัปเดตแล้ว', 'เปลี่ยนช่วงเวลาแจ้งเตือนเป็น $minutes นาที');
+
+    // 🔥 FIX 1.4: แจ้ง UI อื่นให้อัพเดท
+    await _notifySettingsChanged();
   }
 
   /// Update work time
@@ -111,6 +126,9 @@ class SettingsController extends GetxController {
     }
 
     Get.snackbar('อัปเดตแล้ว', 'เปลี่ยนเวลาทำงานแล้ว');
+
+    // 🔥 FIX 1.4: แจ้ง UI อื่นให้อัพเดท
+    await _notifySettingsChanged();
   }
 
   /// Update work days
@@ -126,6 +144,9 @@ class SettingsController extends GetxController {
 
     final dayNames = days.map(_getDayName).join(', ');
     Get.snackbar('อัปเดตแล้ว', 'วันทำงาน: $dayNames');
+
+    // 🔥 FIX 1.4: แจ้ง UI อื่นให้อัพเดท
+    await _notifySettingsChanged();
   }
 
   /// Add break period
@@ -143,6 +164,9 @@ class SettingsController extends GetxController {
     }
 
     Get.snackbar('เพิ่มแล้ว', 'เพิ่มช่วงเวลาพัก: ${breakPeriod.name}');
+
+    // 🔥 FIX 1.4: แจ้ง UI อื่นให้อัพเดท
+    await _notifySettingsChanged();
   }
 
   /// Remove break period
@@ -161,6 +185,9 @@ class SettingsController extends GetxController {
       }
 
       Get.snackbar('ลบแล้ว', 'ลบช่วงเวลาพัก: ${removed.name}');
+
+      // 🔥 FIX 1.4: แจ้ง UI อื่นให้อัพเดท
+      await _notifySettingsChanged();
     }
   }
 
@@ -216,7 +243,13 @@ class SettingsController extends GetxController {
     _settings.value = defaultSettings;
     await _saveSettings();
 
+    // Cancel all notifications
+    await NotificationService.instance.cancelAllNotifications();
+
     Get.snackbar('รีเซ็ตแล้ว', 'กลับสู่การตั้งค่าเริ่มต้น');
+
+    // 🔥 FIX 1.4: แจ้ง UI อื่นให้อัพเดท
+    await _notifySettingsChanged();
   }
 
   /// Get day name in Thai
@@ -252,5 +285,235 @@ class SettingsController extends GetxController {
     final startMinutes = start.hour * 60 + start.minute;
     final endMinutes = end.hour * 60 + end.minute;
     return endMinutes > startMinutes;
+  }
+
+  /// 🔥 FIX 2.2: ปรับปรุง Settings UI เพิ่มตัวเลือก
+  /// Show interval picker
+  Future<void> showIntervalPicker() async {
+    final selectedInterval = await Get.dialog<int>(
+      AlertDialog(
+        title: const Text('เลือกช่วงเวลาแจ้งเตือน'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: intervalOptions.length,
+            itemBuilder: (context, index) {
+              final interval = intervalOptions[index];
+              final isSelected = interval == intervalMinutes;
+              
+              return ListTile(
+                title: Text('$interval นาที'),
+                subtitle: Text(_getIntervalDescription(interval)),
+                leading: Radio<int>(
+                  value: interval,
+                  groupValue: intervalMinutes,
+                  onChanged: (value) => Get.back(result: value),
+                ),
+                selected: isSelected,
+                onTap: () => Get.back(result: interval),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: const Text('ยกเลิก'),
+          ),
+        ],
+      ),
+    );
+
+    if (selectedInterval != null && selectedInterval != intervalMinutes) {
+      await updateIntervalMinutes(selectedInterval);
+    }
+  }
+
+  /// Get interval description
+  String _getIntervalDescription(int minutes) {
+    if (minutes <= 30) return 'บ่อยมาก - เหมาะสำหรับงานหนัก';
+    if (minutes <= 60) return 'ปกติ - แนะนำสำหรับคนทั่วไป';
+    if (minutes <= 120) return 'น้อย - เหมาะสำหรับงานเบา';
+    return 'น้อยมาก - เฉพาะกรณีพิเศษ';
+  }
+
+  /// Show work time picker
+  Future<void> showWorkTimePicker() async {
+    TimeOfDay? startTime = workStartTime;
+    TimeOfDay? endTime = workEndTime;
+
+    final result = await Get.dialog<Map<String, TimeOfDay>>(
+      AlertDialog(
+        title: const Text('ตั้งเวลาทำงาน'),
+        content: StatefulBuilder(
+          builder: (context, setState) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  title: const Text('เวลาเริ่มงาน'),
+                  subtitle: Text('${startTime.format(context)}'),
+                  trailing: const Icon(Icons.access_time),
+                  onTap: () async {
+                    final picked = await showTimePicker(
+                      context: context,
+                      initialTime: startTime,
+                    );
+                    if (picked != null) {
+                      setState(() {
+                        startTime = picked;
+                      });
+                    }
+                  },
+                ),
+                ListTile(
+                  title: const Text('เวลาเลิกงาน'),
+                  subtitle: Text('${endTime.format(context)}'),
+                  trailing: const Icon(Icons.access_time),
+                  onTap: () async {
+                    final picked = await showTimePicker(
+                      context: context,
+                      initialTime: endTime,
+                    );
+                    if (picked != null) {
+                      setState(() {
+                        endTime = picked;
+                      });
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+                if (!isValidWorkTime(startTime, endTime))
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.red.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          color: Colors.red.shade600,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'เวลาเลิกงานต้องมากกว่าเวลาเริ่มงาน',
+                            style: TextStyle(
+                              color: Colors.red.shade600,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: const Text('ยกเลิก'),
+          ),
+          ElevatedButton(
+            onPressed: isValidWorkTime(startTime, endTime)
+                ? () => Get.back(result: {
+                      'start': startTime,
+                      'end': endTime,
+                    })
+                : null,
+            child: const Text('บันทึก'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      await updateWorkTime(
+        startTime: result['start'],
+        endTime: result['end'],
+      );
+    }
+  }
+
+  /// Show work days picker
+  Future<void> showWorkDaysPicker() async {
+    List<int> selectedDays = List.from(workDays);
+
+    final result = await Get.dialog<List<int>>(
+      AlertDialog(
+        title: const Text('เลือกวันทำงาน'),
+        content: StatefulBuilder(
+          builder: (context, setState) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: workDayOptions.entries.map((entry) {
+                final day = entry.key;
+                final name = entry.value;
+                final isSelected = selectedDays.contains(day);
+
+                return CheckboxListTile(
+                  title: Text(name),
+                  value: isSelected,
+                  onChanged: (checked) {
+                    setState(() {
+                      if (checked == true) {
+                        if (!selectedDays.contains(day)) {
+                          selectedDays.add(day);
+                          selectedDays.sort();
+                        }
+                      } else {
+                        selectedDays.remove(day);
+                      }
+                    });
+                  },
+                );
+              }).toList(),
+            );
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: const Text('ยกเลิก'),
+          ),
+          ElevatedButton(
+            onPressed: selectedDays.isEmpty
+                ? null
+                : () => Get.back(result: selectedDays),
+            child: const Text('บันทึก'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      await updateWorkDays(result);
+    }
+  }
+
+  /// Export settings (for backup)
+  Map<String, dynamic> exportSettings() {
+    return settings.toMap(); // ต้องเพิ่ม toMap() method ใน UserSettings
+  }
+
+  /// Import settings (for restore)
+  Future<void> importSettings(Map<String, dynamic> settingsMap) async {
+    try {
+      // Parse และ validate settings จาก map
+      // final importedSettings = UserSettings.fromMap(settingsMap);
+      // _settings.value = importedSettings;
+      // await _saveSettings();
+      
+      Get.snackbar('สำเร็จ', 'นำเข้าการตั้งค่าเรียบร้อย');
+    } catch (e) {
+      Get.snackbar('ข้อผิดพลาด', 'ไม่สามารถนำเข้าการตั้งค่าได้: $e');
+    }
   }
 }

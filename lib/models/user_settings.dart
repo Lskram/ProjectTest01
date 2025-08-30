@@ -1,6 +1,35 @@
+import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
 
-part 'user_settings.g.dart';
+@HiveType(typeId: 3)
+class BreakPeriod extends HiveObject {
+  @HiveField(0)
+  final String name;
+
+  @HiveField(1)
+  final TimeOfDay startTime;
+
+  @HiveField(2)
+  final TimeOfDay endTime;
+
+  BreakPeriod({
+    required this.name,
+    required this.startTime,
+    required this.endTime,
+  });
+
+  BreakPeriod copyWith({
+    String? name,
+    TimeOfDay? startTime,
+    TimeOfDay? endTime,
+  }) {
+    return BreakPeriod(
+      name: name ?? this.name,
+      startTime: startTime ?? this.startTime,
+      endTime: endTime ?? this.endTime,
+    );
+  }
+}
 
 @HiveType(typeId: 2)
 class UserSettings extends HiveObject {
@@ -8,7 +37,7 @@ class UserSettings extends HiveObject {
   final bool notificationsEnabled;
 
   @HiveField(1)
-  final int intervalMinutes; // ทุกกี่นาทีแจ้งเตือน
+  final int intervalMinutes;
 
   @HiveField(2)
   final TimeOfDay workStartTime;
@@ -17,7 +46,7 @@ class UserSettings extends HiveObject {
   final TimeOfDay workEndTime;
 
   @HiveField(4)
-  final List<int> workDays; // 1=จันทร์, 7=อาทิตย์
+  final List<int> workDays; // 1=Monday, 7=Sunday
 
   @HiveField(5)
   final List<BreakPeriod> breakPeriods;
@@ -29,30 +58,37 @@ class UserSettings extends HiveObject {
   final bool vibrationEnabled;
 
   @HiveField(8)
-  final int maxSnoozeCount; // เลื่อนได้สูงสุดกี่ครั้ง
+  final int maxSnoozeCount;
 
   @HiveField(9)
-  final List<int> snoozeOptions; // ตัวเลือกเลื่อน (นาที)
+  final List<int> snoozeOptions; // in minutes
 
   @HiveField(10)
-  final List<int> selectedPainPointIds; // จุดที่เลือกไว้ (สูงสุด 3)
+  final List<int> selectedPainPointIds;
+
+  // 🔥 FIX 1.1: เพิ่ม permission tracking
+  @HiveField(11)
+  final bool hasRequestedPermissions;
+
+  // 🔥 FIX 1.3: เพิ่ม last notification time สำหรับ fixed interval
+  @HiveField(12)
+  final DateTime? lastNotificationTime;
 
   UserSettings({
     this.notificationsEnabled = true,
     this.intervalMinutes = 60,
-    TimeOfDay? workStartTime, // ✅ เปลี่ยนเป็น nullable
-    TimeOfDay? workEndTime, // ✅ เปลี่ยนเป็น nullable
-    this.workDays = const [1, 2, 3, 4, 5], // จ-ศ
+    this.workStartTime = const TimeOfDay(hour: 9, minute: 0),
+    this.workEndTime = const TimeOfDay(hour: 17, minute: 0),
+    this.workDays = const [1, 2, 3, 4, 5], // Monday to Friday
     this.breakPeriods = const [],
     this.soundEnabled = true,
     this.vibrationEnabled = true,
     this.maxSnoozeCount = 3,
-    this.snoozeOptions = const [5, 15, 30],
+    this.snoozeOptions = const [5, 10, 15],
     this.selectedPainPointIds = const [],
-  })  : workStartTime = workStartTime ??
-            TimeOfDay(hour: 9, minute: 0), // ✅ ใช้ initializer list
-        workEndTime = workEndTime ??
-            TimeOfDay(hour: 18, minute: 0); // ✅ ใช้ initializer list
+    this.hasRequestedPermissions = false, // 🔥 Default: ยังไม่เคยขอ
+    this.lastNotificationTime, // 🔥 Default: null
+  });
 
   UserSettings copyWith({
     bool? notificationsEnabled,
@@ -66,6 +102,8 @@ class UserSettings extends HiveObject {
     int? maxSnoozeCount,
     List<int>? snoozeOptions,
     List<int>? selectedPainPointIds,
+    bool? hasRequestedPermissions, // 🔥 เพิ่ม
+    DateTime? lastNotificationTime, // 🔥 เพิ่ม
   }) {
     return UserSettings(
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
@@ -79,141 +117,79 @@ class UserSettings extends HiveObject {
       maxSnoozeCount: maxSnoozeCount ?? this.maxSnoozeCount,
       snoozeOptions: snoozeOptions ?? this.snoozeOptions,
       selectedPainPointIds: selectedPainPointIds ?? this.selectedPainPointIds,
+      hasRequestedPermissions:
+          hasRequestedPermissions ?? this.hasRequestedPermissions, // 🔥
+      lastNotificationTime:
+          lastNotificationTime ?? this.lastNotificationTime, // 🔥
     );
   }
 
   // Helper methods
-  bool get hasSelectedPainPoints => selectedPainPointIds.isNotEmpty;
-  bool get isWorkDay => workDays.contains(DateTime.now().weekday);
-
-  @override
-  String toString() {
-    return 'UserSettings{interval: ${intervalMinutes}min, painPoints: ${selectedPainPointIds.length}}';
-  }
-}
-
-// Helper class สำหรับเวลาพัก
-@HiveType(typeId: 3)
-class TimeOfDay extends HiveObject {
-  @HiveField(0)
-  final int hour;
-
-  @HiveField(1)
-  final int minute;
-
-  TimeOfDay({
-    // ✅ ลบ const
-    required this.hour,
-    required this.minute,
-  });
-
-  // Convert to DateTime สำหรับวันนี้
-  DateTime toDateTime() {
-    final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day, hour, minute);
+  bool get isWorkingDay {
+    final today = DateTime.now().weekday;
+    return workDays.contains(today);
   }
 
-  // แสดงเวลาแบบไทย
-  String get displayTime {
-    final h = hour.toString().padLeft(2, '0');
-    final m = minute.toString().padLeft(2, '0');
-    return '$h:$m';
+  bool get isWorkingTime {
+    final now = TimeOfDay.now();
+    final nowMinutes = now.hour * 60 + now.minute;
+    final startMinutes = workStartTime.hour * 60 + workStartTime.minute;
+    final endMinutes = workEndTime.hour * 60 + workEndTime.minute;
+    return nowMinutes >= startMinutes && nowMinutes <= endMinutes;
   }
 
-  TimeOfDay copyWith({int? hour, int? minute}) {
-    return TimeOfDay(
-      hour: hour ?? this.hour,
-      minute: minute ?? this.minute,
-    );
-  }
+  bool get isInBreakPeriod {
+    final now = TimeOfDay.now();
+    final nowMinutes = now.hour * 60 + now.minute;
 
-  @override
-  String toString() => displayTime;
+    for (final breakPeriod in breakPeriods) {
+      final startMinutes =
+          breakPeriod.startTime.hour * 60 + breakPeriod.startTime.minute;
+      final endMinutes =
+          breakPeriod.endTime.hour * 60 + breakPeriod.endTime.minute;
 
-  // เพิ่ม equality operators สำหรับการเปรียบเทียบ
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is TimeOfDay &&
-          runtimeType == other.runtimeType &&
-          hour == other.hour &&
-          minute == other.minute;
-
-  @override
-  int get hashCode => hour.hashCode ^ minute.hashCode;
-}
-
-// Helper class สำหรับช่วงเวลาพัก
-@HiveType(typeId: 4)
-class BreakPeriod extends HiveObject {
-  @HiveField(0)
-  final String name;
-
-  @HiveField(1)
-  final TimeOfDay startTime;
-
-  @HiveField(2)
-  final TimeOfDay endTime;
-
-  @HiveField(3)
-  final bool isActive;
-
-  BreakPeriod({
-    required this.name,
-    required this.startTime,
-    required this.endTime,
-    this.isActive = true,
-  });
-
-  // เช็คว่าเวลาปัจจุบันอยู่ในช่วงพักหรือไม่
-  bool isCurrentlyInBreak() {
-    final now = DateTime.now();
-    final currentTime = TimeOfDay(hour: now.hour, minute: now.minute);
-
-    final currentMinutes = currentTime.hour * 60 + currentTime.minute;
-    final startMinutes = startTime.hour * 60 + startTime.minute;
-    final endMinutes = endTime.hour * 60 + endTime.minute;
-
-    if (startMinutes <= endMinutes) {
-      // ช่วงเวลาปกติ (ไม่ข้ามวัน)
-      return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
-    } else {
-      // ช่วงเวลาข้ามวัน (เช่น 23:00 - 01:00)
-      return currentMinutes >= startMinutes || currentMinutes <= endMinutes;
+      if (nowMinutes >= startMinutes && nowMinutes <= endMinutes) {
+        return true;
+      }
     }
+    return false;
   }
 
-  BreakPeriod copyWith({
-    String? name,
-    TimeOfDay? startTime,
-    TimeOfDay? endTime,
-    bool? isActive,
-  }) {
-    return BreakPeriod(
-      name: name ?? this.name,
-      startTime: startTime ?? this.startTime,
-      endTime: endTime ?? this.endTime,
-      isActive: isActive ?? this.isActive,
-    );
+  bool get shouldReceiveNotifications {
+    return notificationsEnabled &&
+        isWorkingDay &&
+        isWorkingTime &&
+        !isInBreakPeriod;
+  }
+
+  // 🔥 FIX 1.3: คำนวณเวลาแจ้งเตือนถัดไปแบบ fixed interval
+  DateTime? get nextNotificationTime {
+    if (!notificationsEnabled || lastNotificationTime == null) {
+      return null;
+    }
+
+    // คำนวณจาก lastNotificationTime + interval
+    var nextTime =
+        lastNotificationTime!.add(Duration(minutes: intervalMinutes));
+
+    // ถ้าเวลาถัดไปผ่านมาแล้ว ให้คำนวณใหม่จากตอนนี้
+    final now = DateTime.now();
+    while (nextTime.isBefore(now)) {
+      nextTime = nextTime.add(Duration(minutes: intervalMinutes));
+    }
+
+    return nextTime;
   }
 
   @override
   String toString() {
-    return 'BreakPeriod{$name: ${startTime.displayTime}-${endTime.displayTime}}';
+    return 'UserSettings('
+        'notificationsEnabled: $notificationsEnabled, '
+        'intervalMinutes: $intervalMinutes, '
+        'workStartTime: $workStartTime, '
+        'workEndTime: $workEndTime, '
+        'hasRequestedPermissions: $hasRequestedPermissions, '
+        'lastNotificationTime: $lastNotificationTime'
+        ')';
   }
-
-  // เพิ่ม equality operators
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is BreakPeriod &&
-          runtimeType == other.runtimeType &&
-          name == other.name &&
-          startTime == other.startTime &&
-          endTime == other.endTime &&
-          isActive == other.isActive;
-
-  @override
-  int get hashCode =>
-      name.hashCode ^ startTime.hashCode ^ endTime.hashCode ^ isActive.hashCode;
 }
