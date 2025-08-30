@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import '../services/database_service.dart';
 
-// 🔥 FIX 1.2: Widget แสดงเวลาถัดไปแบบ Real-time
+// Widget แสดงเวลาถัดไปแบบ Real-time
 class LiveCountdownWidget extends StatelessWidget {
-  final VoidCallback? onTestTap; // 🔥 FIX 2.1: ปุ่ม Test
+  final VoidCallback? onTestTap; // ปุ่ม Test
 
   const LiveCountdownWidget({
     super.key,
@@ -13,7 +13,7 @@ class LiveCountdownWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DateTime>(
-      // 🔥 อัพเดททุกวินาทีเหมือนนาฬิกา
+      // อัพเดททุกวินาทีเหมือนนาฬิกา
       stream:
           Stream.periodic(const Duration(seconds: 1), (_) => DateTime.now()),
       builder: (context, snapshot) {
@@ -53,9 +53,9 @@ class LiveCountdownWidget extends StatelessWidget {
     String timeText;
     if (hours > 0) {
       timeText =
-          '${hours}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+          '$hours:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
     } else {
-      timeText = '${minutes}:${seconds.toString().padLeft(2, '0')}';
+      timeText = '$minutes:${seconds.toString().padLeft(2, '0')}';
     }
 
     // คำนวณ progress สำหรับ interval
@@ -74,7 +74,7 @@ class LiveCountdownWidget extends StatelessWidget {
         border: Border.all(color: Colors.blue.shade200),
         boxShadow: [
           BoxShadow(
-            color: Colors.blue.shade100.withOpacity(0.5),
+            color: Colors.blue.shade100.withValues(alpha: 0.5),
             blurRadius: 8,
             spreadRadius: 2,
           ),
@@ -99,7 +99,7 @@ class LiveCountdownWidget extends StatelessWidget {
                   ),
                 ),
               ),
-              // 🔥 FIX 2.1: ปุ่ม Test ข้างๆ
+              // ปุ่ม Test ข้างๆ
               if (onTestTap != null) _buildTestButton(),
             ],
           ),
@@ -263,7 +263,7 @@ class LiveCountdownWidget extends StatelessWidget {
     );
   }
 
-  // 🔥 FIX 2.1: ปุ่มทดสอบการแจ้งเตือน
+  // ปุ่มทดสอบการแจ้งเตือน
   Widget _buildTestButton() {
     return Material(
       color: Colors.transparent,
@@ -282,7 +282,7 @@ class LiveCountdownWidget extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
+              const Icon(
                 Icons.science,
                 color: Colors.white,
                 size: 16,

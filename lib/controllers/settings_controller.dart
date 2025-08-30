@@ -59,7 +59,7 @@ class SettingsController extends GetxController {
     }
   }
 
-  /// 🔥 FIX 1.4: แจ้งให้ controllers อื่นรู้ว่า settings เปลี่ยน
+  /// แจ้งให้ controllers อื่นรู้ว่า settings เปลี่ยน
   Future<void> _notifySettingsChanged() async {
     // แจ้ง HomeController ให้รีเฟรช
     if (Get.isRegistered<HomeController>()) {
@@ -82,7 +82,7 @@ class SettingsController extends GetxController {
       Get.snackbar('ปิดการแจ้งเตือน 🔕', 'ระบบหยุดการแจ้งเตือนชั่วคราว');
     }
 
-    // 🔥 FIX 1.4: แจ้ง UI อื่นให้อัพเดท
+    // แจ้ง UI อื่นให้อัพเดท
     await _notifySettingsChanged();
   }
 
@@ -104,7 +104,7 @@ class SettingsController extends GetxController {
 
     Get.snackbar('อัปเดตแล้ว', 'เปลี่ยนช่วงเวลาแจ้งเตือนเป็น $minutes นาที');
 
-    // 🔥 FIX 1.4: แจ้ง UI อื่นให้อัพเดท
+    // แจ้ง UI อื่นให้อัพเดท
     await _notifySettingsChanged();
   }
 
@@ -127,7 +127,7 @@ class SettingsController extends GetxController {
 
     Get.snackbar('อัปเดตแล้ว', 'เปลี่ยนเวลาทำงานแล้ว');
 
-    // 🔥 FIX 1.4: แจ้ง UI อื่นให้อัพเดท
+    // แจ้ง UI อื่นให้อัพเดท
     await _notifySettingsChanged();
   }
 
@@ -145,7 +145,7 @@ class SettingsController extends GetxController {
     final dayNames = days.map(_getDayName).join(', ');
     Get.snackbar('อัปเดตแล้ว', 'วันทำงาน: $dayNames');
 
-    // 🔥 FIX 1.4: แจ้ง UI อื่นให้อัพเดท
+    // แจ้ง UI อื่นให้อัพเดท
     await _notifySettingsChanged();
   }
 
@@ -165,7 +165,7 @@ class SettingsController extends GetxController {
 
     Get.snackbar('เพิ่มแล้ว', 'เพิ่มช่วงเวลาพัก: ${breakPeriod.name}');
 
-    // 🔥 FIX 1.4: แจ้ง UI อื่นให้อัพเดท
+    // แจ้ง UI อื่นให้อัพเดท
     await _notifySettingsChanged();
   }
 
@@ -186,7 +186,7 @@ class SettingsController extends GetxController {
 
       Get.snackbar('ลบแล้ว', 'ลบช่วงเวลาพัก: ${removed.name}');
 
-      // 🔥 FIX 1.4: แจ้ง UI อื่นให้อัพเดท
+      // แจ้ง UI อื่นให้อัพเดท
       await _notifySettingsChanged();
     }
   }
@@ -248,7 +248,7 @@ class SettingsController extends GetxController {
 
     Get.snackbar('รีเซ็ตแล้ว', 'กลับสู่การตั้งค่าเริ่มต้น');
 
-    // 🔥 FIX 1.4: แจ้ง UI อื่นให้อัพเดท
+    // แจ้ง UI อื่นให้อัพเดท
     await _notifySettingsChanged();
   }
 
@@ -287,7 +287,6 @@ class SettingsController extends GetxController {
     return endMinutes > startMinutes;
   }
 
-  /// 🔥 FIX 2.2: ปรับปรุง Settings UI เพิ่มตัวเลือก
   /// Show interval picker
   Future<void> showIntervalPicker() async {
     final selectedInterval = await Get.dialog<int>(
@@ -301,7 +300,7 @@ class SettingsController extends GetxController {
             itemBuilder: (context, index) {
               final interval = intervalOptions[index];
               final isSelected = interval == intervalMinutes;
-              
+
               return ListTile(
                 title: Text('$interval นาที'),
                 subtitle: Text(_getIntervalDescription(interval)),
@@ -338,10 +337,10 @@ class SettingsController extends GetxController {
     return 'น้อยมาก - เฉพาะกรณีพิเศษ';
   }
 
-  /// Show work time picker
+  /// Show work time picker - Fixed null safety
   Future<void> showWorkTimePicker() async {
-    TimeOfDay? startTime = workStartTime;
-    TimeOfDay? endTime = workEndTime;
+    TimeOfDay startTime = workStartTime;
+    TimeOfDay endTime = workEndTime;
 
     final result = await Get.dialog<Map<String, TimeOfDay>>(
       AlertDialog(
@@ -353,7 +352,7 @@ class SettingsController extends GetxController {
               children: [
                 ListTile(
                   title: const Text('เวลาเริ่มงาน'),
-                  subtitle: Text('${startTime.format(context)}'),
+                  subtitle: Text(startTime.format(context)),
                   trailing: const Icon(Icons.access_time),
                   onTap: () async {
                     final picked = await showTimePicker(
@@ -369,7 +368,7 @@ class SettingsController extends GetxController {
                 ),
                 ListTile(
                   title: const Text('เวลาเลิกงาน'),
-                  subtitle: Text('${endTime.format(context)}'),
+                  subtitle: Text(endTime.format(context)),
                   trailing: const Icon(Icons.access_time),
                   onTap: () async {
                     final picked = await showTimePicker(
@@ -495,25 +494,6 @@ class SettingsController extends GetxController {
 
     if (result != null) {
       await updateWorkDays(result);
-    }
-  }
-
-  /// Export settings (for backup)
-  Map<String, dynamic> exportSettings() {
-    return settings.toMap(); // ต้องเพิ่ม toMap() method ใน UserSettings
-  }
-
-  /// Import settings (for restore)
-  Future<void> importSettings(Map<String, dynamic> settingsMap) async {
-    try {
-      // Parse และ validate settings จาก map
-      // final importedSettings = UserSettings.fromMap(settingsMap);
-      // _settings.value = importedSettings;
-      // await _saveSettings();
-      
-      Get.snackbar('สำเร็จ', 'นำเข้าการตั้งค่าเรียบร้อย');
-    } catch (e) {
-      Get.snackbar('ข้อผิดพลาด', 'ไม่สามารถนำเข้าการตั้งค่าได้: $e');
     }
   }
 }

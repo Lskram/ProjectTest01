@@ -3,7 +3,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:get/get.dart';
 import 'dart:async';
 
-// 🔥 FIX 2.1: Service สำหรับทดสอบการแจ้งเตือน
+// Service สำหรับทดสอบการแจ้งเตือน
 class TestNotificationService {
   static TestNotificationService? _instance;
   static TestNotificationService get instance =>
@@ -40,8 +40,8 @@ class TestNotificationService {
   /// แสดง countdown dialog
   Future<void> _showCountdownDialog(int seconds) async {
     return Get.dialog(
-      WillPopScope(
-        onWillPop: () async => false, // ป้องกันการปิด dialog
+      PopScope(
+        canPop: false, // ป้องกันการปิด dialog
         child: AlertDialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),

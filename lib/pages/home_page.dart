@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../controllers/home_controller.dart';
 import '../widgets/live_countdown_widget.dart';
+import '../models/notification_session.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -32,15 +33,15 @@ class HomePage extends StatelessWidget {
         }
 
         return RefreshIndicator(
-          // 🔥 FIX 2.2: Pull-to-refresh
+          // Pull-to-refresh
           onRefresh: homeController.onRefresh,
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             child: Column(
               children: [
-                // 🔥 FIX 1.2: Real-time Countdown Widget พร้อม Test Button
+                // Real-time Countdown Widget พร้อม Test Button
                 LiveCountdownWidget(
-                  onTestTap: homeController.testNotification, // 🔥 FIX 2.1
+                  onTestTap: homeController.testNotification,
                 ),
 
                 // Today's Stats Card
@@ -175,7 +176,7 @@ class HomePage extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -280,10 +281,13 @@ class HomePage extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: isEnabled ? color.withOpacity(0.1) : Colors.grey.shade100,
+            color:
+                isEnabled ? color.withValues(alpha: 0.1) : Colors.grey.shade100,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isEnabled ? color.withOpacity(0.3) : Colors.grey.shade300,
+              color: isEnabled
+                  ? color.withValues(alpha: 0.3)
+                  : Colors.grey.shade300,
             ),
           ),
           child: Column(
@@ -405,7 +409,7 @@ class HomePage extends StatelessWidget {
           // แสดงแค่ 3 sessions ล่าสุด
           ...controller.todaySessions.take(3).map((session) {
             return _buildSessionTile(session, controller);
-          }).toList(),
+          }),
 
           if (controller.todaySessions.length > 3)
             Padding(
@@ -448,15 +452,42 @@ class HomePage extends StatelessWidget {
         statusColor = Colors.orange.shade600;
         statusIcon = Icons.snooze;
         break;
-      default:
-        statusColor = Colors.grey.shade600;
-        statusIcon = Icons.help;
     }
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => controller.viewSessionDetails(session),
+        onTap: () {
+          // Show session details dialog
+          Get.dialog(
+            AlertDialog(
+              title: const Text('รายละเอียด Session'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                      'เวลาตั้ง: ${controller.formatDateTime(session.scheduledTime)}'),
+                  Text('สถานะ: ${controller.getStatusText(session.status)}'),
+                  if (session.actualStartTime != null)
+                    Text(
+                        'เวลาเริ่ม: ${controller.formatDateTime(session.actualStartTime!)}'),
+                  if (session.completedTime != null)
+                    Text(
+                        'เวลาเสร็จ: ${controller.formatDateTime(session.completedTime!)}'),
+                  Text(
+                      'ความสำเร็จ: ${(session.completionPercentage * 100).toInt()}%'),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Get.back(),
+                  child: const Text('ปิด'),
+                ),
+              ],
+            ),
+          );
+        },
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           decoration: BoxDecoration(
@@ -477,14 +508,14 @@ class HomePage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      controller._formatDateTime(session.scheduledTime),
+                      controller.formatDateTime(session.scheduledTime),
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
                     Text(
-                      controller._getStatusText(session.status),
+                      controller.getStatusText(session.status),
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey.shade600,

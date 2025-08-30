@@ -1,5 +1,6 @@
 import 'package:get/get.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import '../services/database_service.dart';
 import '../services/notification_service.dart';
 import '../services/test_notification_service.dart';
@@ -33,8 +34,6 @@ class HomeController extends GetxController {
 
   DateTime? get nextNotificationTime => userSettings?.nextNotificationTime;
 
-  // 🔥 FIX 1.2: Real-time countdown ทำใน Widget แล้ว ไม่ต้องมี Timer ใน Controller
-
   @override
   void onInit() {
     super.onInit();
@@ -44,7 +43,7 @@ class HomeController extends GetxController {
   @override
   void onReady() {
     super.onReady();
-    // 🔥 FIX 1.4: Listen การเปลี่ยนแปลงจาก Settings
+    // Listen การเปลี่ยนแปลงจาก Settings
     _setupSettingsListener();
   }
 
@@ -77,10 +76,9 @@ class HomeController extends GetxController {
     _userSettings.value = settings;
   }
 
-  /// 🔥 FIX 1.4: ตั้งค่าการฟัง Settings เปลี่ยนแปลง
+  /// ตั้งค่าการฟัง Settings เปลี่ยนแปลง
   void _setupSettingsListener() {
     // ฟังการเปลี่ยนแปลงของ settings ทุก 2 วินาที
-    // (ในโครงการจริงควรใช้ Stream หรือ EventBus)
     ever(_userSettings, (settings) {
       if (settings != null) {
         debugPrint('🔄 Settings changed, refreshing UI...');
@@ -88,13 +86,13 @@ class HomeController extends GetxController {
     });
   }
 
-  /// 🔥 FIX 1.4: รีเฟรชข้อมูลเมื่อ Settings เปลี่ยน
+  /// รีเฟรชข้อมูลเมื่อ Settings เปลี่ยน
   Future<void> refreshData() async {
     debugPrint('🔄 Refreshing home data...');
     await _loadData();
   }
 
-  /// Pull-to-refresh 🔥 FIX 2.2
+  /// Pull-to-refresh
   Future<void> onRefresh() async {
     await refreshData();
 
@@ -110,7 +108,7 @@ class HomeController extends GetxController {
     );
   }
 
-  /// 🔥 FIX 2.1: ทดสอบการแจ้งเตือน
+  /// ทดสอบการแจ้งเตือน
   Future<void> testNotification() async {
     try {
       debugPrint('🧪 Testing notification...');
@@ -177,42 +175,13 @@ class HomeController extends GetxController {
     Get.toNamed('/settings');
   }
 
-  /// ดูรายละเอียด session
-  void viewSessionDetails(NotificationSession session) {
-    Get.dialog(
-      AlertDialog(
-        title: Text('รายละเอียด Session'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('เวลาตั้ง: ${_formatDateTime(session.scheduledTime)}'),
-            Text('สถานะ: ${_getStatusText(session.status)}'),
-            if (session.actualStartTime != null)
-              Text('เวลาเริ่ม: ${_formatDateTime(session.actualStartTime!)}'),
-            if (session.completedTime != null)
-              Text('เวลาเสร็จ: ${_formatDateTime(session.completedTime!)}'),
-            Text(
-                'ความสำเร็จ: ${(session.completionPercentage * 100).toInt()}%'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Get.back(),
-            child: const Text('ปิด'),
-          ),
-        ],
-      ),
-    );
-  }
-
   /// Format DateTime สำหรับแสดงผล
-  String _formatDateTime(DateTime dateTime) {
+  String formatDateTime(DateTime dateTime) {
     return '${dateTime.day}/${dateTime.month} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 
   /// แปลงสถานะเป็นข้อความ
-  String _getStatusText(SessionStatus status) {
+  String getStatusText(SessionStatus status) {
     switch (status) {
       case SessionStatus.pending:
         return 'รอทำ';
@@ -222,8 +191,6 @@ class HomeController extends GetxController {
         return 'เลื่อน';
       case SessionStatus.skipped:
         return 'ข้าม';
-      default:
-        return 'ไม่ทราบ';
     }
   }
 
@@ -253,9 +220,9 @@ class HomeController extends GetxController {
     final minutes = timeUntil.inMinutes.remainder(60);
 
     if (hours > 0) {
-      return 'แจ้งเตือนในอีก ${hours} ชั่วโมง ${minutes} นาที';
+      return 'แจ้งเตือนในอีก $hours ชั่วโมง $minutes นาที';
     } else {
-      return 'แจ้งเตือนในอีก ${minutes} นาที';
+      return 'แจ้งเตือนในอีก $minutes นาที';
     }
   }
 
@@ -284,7 +251,7 @@ class HomeController extends GetxController {
     return Get.theme.colorScheme.primary;
   }
 
-  /// 🔥 เมื่อ dispose ให้ cleanup
+  /// เมื่อ dispose ให้ cleanup
   @override
   void onClose() {
     TestNotificationService.instance.dispose();

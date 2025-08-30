@@ -1,6 +1,7 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import '../services/database_service.dart';
 import '../services/random_service.dart';
 import '../models/notification_session.dart';
@@ -8,8 +9,7 @@ import '../models/user_settings.dart';
 
 class NotificationService {
   static NotificationService? _instance;
-  static NotificationService get instance =>
-      _instance ??= NotificationService._();
+  static NotificationService get instance => _instance ??= NotificationService._();
   NotificationService._();
 
   late FlutterLocalNotificationsPlugin _notifications;
@@ -22,8 +22,7 @@ class NotificationService {
     _notifications = FlutterLocalNotificationsPlugin();
 
     // Android initialization
-    const androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
 
     // iOS initialization
     const iosSettings = DarwinInitializationSettings(
@@ -71,16 +70,15 @@ class NotificationService {
     );
 
     await _notifications
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(androidChannel);
   }
 
-  /// 🔥 FIX 1.3: ตั้งเวลาแจ้งเตือนถัดไปแบบ Fixed Interval
+  /// ตั้งเวลาแจ้งเตือนถัดไปแบบ Fixed Interval
   Future<void> scheduleNextNotification() async {
     try {
       final settings = DatabaseService.instance.getUserSettings();
-
+      
       if (!settings.notificationsEnabled) {
         debugPrint('📴 Notifications disabled');
         return;
@@ -89,9 +87,9 @@ class NotificationService {
       // ยกเลิกการแจ้งเตือนเก่าทั้งหมดก่อน
       await cancelAllNotifications();
 
-      // 🔥 คำนวณเวลาถัดไปแบบ Fixed Interval
+      // คำนวณเวลาถัดไปแบบ Fixed Interval
       final nextTime = _calculateNextNotificationTime(settings);
-
+      
       if (nextTime == null) {
         debugPrint('⏰ No valid next notification time');
         return;
@@ -99,11 +97,11 @@ class NotificationService {
 
       // สร้าง session ใหม่
       final session = await _createNotificationSession(nextTime);
-
+      
       // ตั้งการแจ้งเตือน
       await _scheduleNotification(session);
 
-      // 🔥 บันทึก lastNotificationTime ใหม่
+      // บันทึก lastNotificationTime ใหม่
       await _updateLastNotificationTime(nextTime);
 
       debugPrint('🔔 Next notification scheduled for: $nextTime');
@@ -112,22 +110,21 @@ class NotificationService {
     }
   }
 
-  /// 🔥 FIX 1.3: คำนวณเวลาแจ้งเตือนถัดไปแบบ Fixed Interval
+  /// คำนวณเวลาแจ้งเตือนถัดไปแบบ Fixed Interval
   DateTime? _calculateNextNotificationTime(UserSettings settings) {
     final now = DateTime.now();
-
+    
     // ถ้าไม่มี lastNotificationTime ให้เริ่มจากตอนนี้
     DateTime baseTime = settings.lastNotificationTime ?? now;
-
+    
     // ถ้า lastNotificationTime เป็นอนาคต (ผิดปกติ) ให้ใช้เวลาปัจจุบัน
     if (baseTime.isAfter(now)) {
       baseTime = now;
     }
 
     // คำนวณเวลาถัดไปจาก baseTime + interval
-    DateTime nextTime =
-        baseTime.add(Duration(minutes: settings.intervalMinutes));
-
+    DateTime nextTime = baseTime.add(Duration(minutes: settings.intervalMinutes));
+    
     // ถ้าเวลาถัดไปผ่านมาแล้ว ให้คำนวณใหม่จากตอนนี้
     while (nextTime.isBefore(now)) {
       nextTime = nextTime.add(Duration(minutes: settings.intervalMinutes));
@@ -153,24 +150,19 @@ class NotificationService {
     // เช็คเวลาทำงาน
     final timeOfDay = TimeOfDay.fromDateTime(time);
     final currentMinutes = timeOfDay.hour * 60 + timeOfDay.minute;
-    final startMinutes =
-        settings.workStartTime.hour * 60 + settings.workStartTime.minute;
-    final endMinutes =
-        settings.workEndTime.hour * 60 + settings.workEndTime.minute;
-
+    final startMinutes = settings.workStartTime.hour * 60 + settings.workStartTime.minute;
+    final endMinutes = settings.workEndTime.hour * 60 + settings.workEndTime.minute;
+    
     if (currentMinutes < startMinutes || currentMinutes > endMinutes) {
       return false;
     }
 
     // เช็คช่วงพัก
     for (final breakPeriod in settings.breakPeriods) {
-      final breakStartMinutes =
-          breakPeriod.startTime.hour * 60 + breakPeriod.startTime.minute;
-      final breakEndMinutes =
-          breakPeriod.endTime.hour * 60 + breakPeriod.endTime.minute;
-
-      if (currentMinutes >= breakStartMinutes &&
-          currentMinutes <= breakEndMinutes) {
+      final breakStartMinutes = breakPeriod.startTime.hour * 60 + breakPeriod.startTime.minute;
+      final breakEndMinutes = breakPeriod.endTime.hour * 60 + breakPeriod.endTime.minute;
+      
+      if (currentMinutes >= breakStartMinutes && currentMinutes <= breakEndMinutes) {
         return false;
       }
     }
@@ -181,12 +173,12 @@ class NotificationService {
   /// หาเวลาทำงานถัดไป
   DateTime _findNextWorkingTime(DateTime startTime, UserSettings settings) {
     DateTime candidateTime = startTime;
-
+    
     // หาสูงสุด 7 วัน
     for (int day = 0; day < 7; day++) {
       final checkDate = candidateTime.add(Duration(days: day));
       final weekday = checkDate.weekday;
-
+      
       if (settings.workDays.contains(weekday)) {
         // วันนี้เป็นวันทำงาน ตั้งเวลาเป็นเวลาเริ่มงาน
         final workStartTime = DateTime(
@@ -196,7 +188,7 @@ class NotificationService {
           settings.workStartTime.hour,
           settings.workStartTime.minute,
         );
-
+        
         // ถ้าเป็นวันเดียวกันและยังไม่ถึงเวลาเริ่มงาน
         if (day == 0 && workStartTime.isAfter(DateTime.now())) {
           return workStartTime;
@@ -207,10 +199,9 @@ class NotificationService {
         }
       }
     }
-
+    
     // fallback: วันจันทร์หน้า 9:00
-    final nextMonday =
-        candidateTime.add(Duration(days: (8 - candidateTime.weekday) % 7));
+    final nextMonday = candidateTime.add(Duration(days: (8 - candidateTime.weekday) % 7));
     return DateTime(
       nextMonday.year,
       nextMonday.month,
@@ -221,15 +212,13 @@ class NotificationService {
   }
 
   /// สร้าง NotificationSession ใหม่
-  Future<NotificationSession> _createNotificationSession(
-      DateTime scheduledTime) async {
-    final session =
-        await RandomService.instance.createRandomSession(scheduledTime);
+  Future<NotificationSession> _createNotificationSession(DateTime scheduledTime) async {
+    final session = await RandomService.instance.createRandomSession(scheduledTime);
     await DatabaseService.instance.saveNotificationSession(session);
     return session;
   }
 
-  /// 🔥 บันทึก lastNotificationTime ใหม่
+  /// บันทึก lastNotificationTime ใหม่
   Future<void> _updateLastNotificationTime(DateTime time) async {
     try {
       final currentSettings = DatabaseService.instance.getUserSettings();
@@ -254,8 +243,6 @@ class NotificationService {
       debugPrint('❌ PainPoint not found for session');
       return;
     }
-
-    final settings = DatabaseService.instance.getUserSettings();
 
     const androidDetails = AndroidNotificationDetails(
       'office_syndrome_channel',
@@ -288,8 +275,6 @@ class NotificationService {
       details,
       payload: session.id,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
     );
 
     debugPrint('🔔 Notification scheduled for: ${session.scheduledTime}');
@@ -377,12 +362,12 @@ class NotificationService {
     debugPrint('🎉 Notification completed');
   }
 
-  /// ดูการแจ้งเตือนที่รอรอ
+  /// ดูการแจ้งเตือนที่รออยู่
   Future<List<PendingNotificationRequest>> getPendingNotifications() async {
     return await _notifications.pendingNotificationRequests();
   }
 
-  /// Debug: แสดงการแจ้งเตือนที่รอรอ
+  /// Debug: แสดงการแจ้งเตือนที่รออยู่
   Future<void> debugPendingNotifications() async {
     if (!kDebugMode) return;
 
