@@ -7,7 +7,6 @@ import '../controllers/statistics_controller.dart';
 class AppBindings extends Bindings {
   @override
   void dependencies() {
-    // Controllers
     Get.put(AppController(), permanent: true);
     Get.put(NotificationController(), permanent: true);
     Get.put(SettingsController(), permanent: true);
