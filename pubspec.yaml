@@ -30,6 +30,8 @@ dependencies:
   # Utilities
   uuid: ^4.4.0
   intl: ^0.20.2
+  flutter_localizations: # เพิ่มบรรทัดนี้
+    sdk: flutter
   
   # Icons & Fonts
   cupertino_icons: ^1.0.2

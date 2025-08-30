@@ -74,6 +74,36 @@ class HomePage extends StatelessWidget {
       final statsController = StatisticsController.instance;
       final motivationMessage = statsController.getMotivationMessage();
 
+      // ใช้การจัดรูปแบบวันที่แบบง่าย
+      final now = DateTime.now();
+      final dayNames = [
+        'อาทิตย์',
+        'จันทร์',
+        'อังคาร',
+        'พุธ',
+        'พฤหัสบดี',
+        'ศุกร์',
+        'เสาร์'
+      ];
+      final monthNames = [
+        '',
+        'มกราคม',
+        'กุมภาพันธ์',
+        'มีนาคม',
+        'เมษายน',
+        'พฤษภาคม',
+        'มิถุนายน',
+        'กรกฎาคม',
+        'สิงหาคม',
+        'กันยายน',
+        'ตุลาคม',
+        'พฤศจิกายน',
+        'ธันวาคม'
+      ];
+
+      final dateString =
+          '${dayNames[now.weekday % 7]}, ${now.day} ${monthNames[now.month]} ${now.year + 543}';
+
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(24),
@@ -115,17 +145,16 @@ class HomePage extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
+                      const Text(
                         'สวัสดี!',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
                           color: Colors.white,
                         ),
                       ),
                       Text(
-                        DateFormat('EEEE, dd MMMM yyyy', 'th_TH')
-                            .format(DateTime.now()),
+                        dateString,
                         style: TextStyle(
                           fontSize: 14,
                           color: Colors.white.withOpacity(0.8),
