@@ -3,7 +3,7 @@ import 'package:get/get.dart';
 import '../controllers/app_controller.dart';
 
 class QuestionnairePage extends StatefulWidget {
-  const QuestionnairePage({Key? key}) : super(key: key);
+  const QuestionnairePage({super.key});
 
   @override
   State<QuestionnairePage> createState() => _QuestionnairePageState();

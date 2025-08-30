@@ -6,7 +6,7 @@ import '../controllers/notification_controller.dart';
 import '../controllers/statistics_controller.dart';
 
 class HomePage extends StatelessWidget {
-  const HomePage({Key? key}) : super(key: key);
+  const HomePage({super.key});
 
   @override
   Widget build(BuildContext context) {

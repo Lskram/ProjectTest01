@@ -3,7 +3,7 @@ import 'package:get/get.dart';
 import '../controllers/settings_controller.dart';
 
 class SettingsPage extends StatelessWidget {
-  const SettingsPage({Key? key}) : super(key: key);
+  const SettingsPage({super.key});
 
   @override
   Widget build(BuildContext context) {
