@@ -45,5 +45,6 @@ flutter {
 }
 
 dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+    // ⭐ อัปเดตเป็น version 2.1.4 ตามที่ flutter_local_notifications ต้องการ
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
