@@ -1,7 +1,112 @@
+# build.yaml - Build Runner Configuration for Office Syndrome Helper
+# กำหนดการตั้งค่าสำหรับ code generation (Hive adapters)
+
 targets:
   $default:
     builders:
-      hive_generator|hive_generator:
+      # Hive Generator Configuration
+      hive_generator:hive_generator:
+        enabled: true
+        generate_for:
+          include:
+            - lib/models/*.dart
+          exclude:
+            - lib/models/models.dart # ไฟล์ export ไม่ต้อง generate
         options:
-          # Generate adapters in same directory as models
-          part_name_source: snake_case
+          # Generate .g.dart files in the same directory as source
+          build_extensions:
+            ".dart": [".g.dart"]
+          
+          # Hive specific options
+          type_id_start: 1
+          
+      # JSON Serializable (ถ้าต้องการใช้ในอนาคต)
+      json_serializable:
+        enabled: false
+        generate_for:
+          include:
+            - lib/models/*.dart
+        options:
+          explicit_to_json: true
+          create_factory: true
+          create_to_json: true
+          
+      # Mockito (สำหรับ testing)
+      mockito:
+        enabled: false
+        generate_for:
+          include:
+            - test/**_test.dart
+            
+global_options:
+  # Output directories
+  hive_generator:hive_generator:
+    # Generate .g.dart files alongside source files
+    build_extensions:
+      ".dart": [".g.dart"]
+    
+    # Performance options
+    runs_before: []
+    is_optional: false
+    
+    # Debugging
+    dev_dependencies: []
+    
+# Build performance settings
+performance:
+  # Track build performance
+  track_performance: true
+  
+  # Log build info
+  log_performance: false
+  
+  # Delete conflicting outputs
+  delete_conflicting_outputs: true
+
+# Development settings
+dev_dependencies:
+  build_runner: ^2.4.9
+  hive_generator: ^2.0.1
+  build_config: ^1.1.1
+  
+# Additional build configurations
+build_config:
+  # Define custom build configurations if needed
+  custom_builders: []
+  
+  # Global build settings
+  global_options:
+    # Automatically delete conflicting outputs
+    "build_runner|build_runner":
+      delete_conflicting_outputs: true
+    
+    # Hive generator specific options
+    "hive_generator|hive_generator":
+      # Options for Hive code generation
+      ignore_for_file:
+        - "type=lint"
+        - "avoid_unused_constructor_parameters"
+        - "avoid_redundant_argument_values"
+        - "avoid_returning_null"
+        - "prefer_final_fields"
+        - "unnecessary_import"
+        - "prefer_single_quotes"
+        
+# Builder definitions
+builders:
+  # Custom builder definitions (if needed)
+  office_syndrome_helper|custom_builder:
+    # Define custom builders here if needed
+    import: "package:office_syndrome_helper/builders.dart"
+    builder_factories: ["customBuilder"]
+    build_extensions:
+      ".dart": [".custom.dart"]
+    auto_apply: none
+    
+# Post process builders
+post_process_builders:
+  # Define post-process builders if needed
+  office_syndrome_helper|post_process:
+    # Post-processing after main build
+    import: "package:office_syndrome_helper/post_process.dart"
+    builder_factory: "postProcessBuilder"

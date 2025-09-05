@@ -30,12 +30,33 @@ dependencies:
   # Utilities
   uuid: ^4.4.0
   intl: ^0.20.2
-  flutter_localizations: # เพิ่มบรรทัดนี้
-    sdk: flutter
   
   # Icons & Fonts
   cupertino_icons: ^1.0.2
   google_fonts: ^6.2.1
+  
+  # Localization
+  flutter_localizations:
+    sdk: flutter
+  
+  # New Dependencies for Enhanced Features
+  # Device Info (สำหรับ Battery Optimizer)
+  device_info_plus: ^12.0.0
+  
+  # Charts (สำหรับ Enhanced Statistics)
+  fl_chart: ^0.76.0
+  
+  # Math utilities (สำหรับ Statistics calculations)
+  collection: ^1.18.0
+  
+  # Path provider (สำหรับ Export Service)
+  path_provider: ^2.1.4
+  
+  # CSV handling (สำหรับ Export)
+  csv: ^6.0.0
+  
+  # Share files (สำหรับ Export)
+  share_plus: ^10.1.1
 
 dev_dependencies:
   flutter_test:
@@ -51,8 +72,25 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   
+  # Enable generate for localization
+  generate: true
+  
   # Assets
   assets:
     - assets/images/
     - assets/icons/
     - assets/images/exercise_illustrations/
+    - assets/images/pain_point_illustrations/
+    - assets/sounds/
+  
+  # Fonts
+  fonts:
+    - family: Sarabun
+      fonts:
+        - asset: assets/fonts/Sarabun-Regular.ttf
+        - asset: assets/fonts/Sarabun-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Sarabun-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Sarabun-Bold.ttf
+          weight: 700
