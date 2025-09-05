@@ -1,42 +1,133 @@
 plugins {
-    id("com.android.application")
-    id("kotlin-android")
+    id "com.android.application"
+    id "kotlin-android"
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
-    id("dev.flutter.flutter-gradle-plugin")
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader("UTF-8") { reader ->
+        localProperties.load(reader)
+    }
+}
+
+// Load keystore properties
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+def flutterVersionCode = localProperties.getProperty("flutter.versionCode")
+if (flutterVersionCode == null) {
+    flutterVersionCode = "1"
+}
+
+def flutterVersionName = localProperties.getProperty("flutter.versionName")
+if (flutterVersionName == null) {
+    flutterVersionName = "1.0"
 }
 
 android {
     namespace = "com.example.office_syndrome_helper"
-    compileSdk = flutter.compileSdkVersion
-    ndkVersion = "27.0.12077973"
+    compileSdk = 34
+    ndkVersion = "23.1.7779620"
 
     compileOptions {
-        isCoreLibraryDesugaringEnabled = true
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
+        jvmTarget = JavaVersion.VERSION_1_8
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.office_syndrome_helper"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        minSdk = 26  // Android 8.0+ for notification runtime permissions
+        targetSdk = 34
+        versionCode = flutterVersionCode.toInteger()
+        versionName = flutterVersionName
+        
+        // For MultiDex support if needed
+        multiDexEnabled true
+        
+        // ProGuard/R8 configuration
+        proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+    }
+
+    signingConfigs {
+        debug {
+            // Debug signing (auto-generated)
+            storeFile file('debug.keystore')
+        }
+        
+        release {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+            }
+        }
     }
 
     buildTypes {
-        release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+        debug {
+            signingConfig signingConfigs.debug
+            debuggable true
+            minifyEnabled false
+            shrinkResources false
+            
+            // Debug-specific build config fields
+            buildConfigField "boolean", "DEBUG_MODE", "true"
+            resValue "string", "app_name", "Office Syndrome Helper (Debug)"
         }
+        
+        profile {
+            signingConfig signingConfigs.debug
+            debuggable false
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            
+            buildConfigField "boolean", "DEBUG_MODE", "false"
+            resValue "string", "app_name", "Office Syndrome Helper (Profile)"
+        }
+        
+        release {
+            signingConfig signingConfigs.release
+            debuggable false
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            
+            buildConfigField "boolean", "DEBUG_MODE", "false"
+            resValue "string", "app_name", "Office Syndrome Helper"
+        }
+    }
+
+    // Android resource configurations
+    resourceConfigurations = ['en', 'th']
+
+    // Lint options
+    lint {
+        disable 'InvalidPackage'
+        checkReleaseBuilds false
+        abortOnError false
+    }
+    
+    // PackagingOptions for duplicate files
+    packagingOptions {
+        pickFirst '**/libc++_shared.so'
+        pickFirst '**/libjsc.so'
+        exclude 'META-INF/DEPENDENCIES'
+        exclude 'META-INF/LICENSE'
+        exclude 'META-INF/LICENSE.txt'
+        exclude 'META-INF/NOTICE'
+        exclude 'META-INF/NOTICE.txt'
     }
 }
 
@@ -45,6 +136,10 @@ flutter {
 }
 
 dependencies {
-    // ⭐ อัปเดตเป็น version 2.1.4 ตามที่ flutter_local_notifications ต้องการ
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // Flutter Dependencies are managed by the Flutter Gradle Plugin
+    
+    // Additional Android dependencies if needed
+    implementation 'androidx.multidex:multidex:2.0.1'
+    implementation 'androidx.work:work-runtime:2.8.1'
+    implementation 'androidx.core:core-ktx:1.12.0'
 }

@@ -4,8 +4,12 @@ import 'package:timezone/timezone.dart' as tz;
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:uuid/uuid.dart';
 import 'package:flutter/foundation.dart';
+import 'dart:isolate';
+import 'dart:ui';
 import '../models/notification_session.dart';
 import '../models/user_settings.dart';
+import '../models/pain_point.dart';
+import '../models/treatment.dart';
 import 'database_service.dart';
 import 'random_service.dart';
 
@@ -15,295 +19,558 @@ class NotificationService {
       _instance ??= NotificationService._();
   NotificationService._();
 
-  final FlutterLocalNotificationsPlugin _notifications =
-      FlutterLocalNotificationsPlugin();
+  static const String _portName = 'notification_service_port';
+  static const int _alarmId = 0;
+
+  FlutterLocalNotificationsPlugin? _localNotifications;
   final Uuid _uuid = const Uuid();
 
-  bool _isInitialized = false;
-
-  /// เริ่มต้น notification service
+  /// Initialize notification service
   Future<void> initialize() async {
-    if (_isInitialized) return;
+    try {
+      debugPrint('🔔 Initializing NotificationService...');
 
-    // Initialize timezone
-    tz.initializeTimeZones();
-    tz.setLocalLocation(tz.getLocation('Asia/Bangkok'));
+      // Initialize timezone
+      tz.initializeTimeZones();
+      tz.setLocalLocation(tz.getLocation('Asia/Bangkok'));
 
-    // Initialize Android Alarm Manager
-    await AndroidAlarmManager.initialize();
+      // Initialize local notifications
+      await _initializeLocalNotifications();
 
-    // Initialize notifications
+      // Initialize alarm manager
+      await AndroidAlarmManager.initialize();
+
+      // Register isolate callback
+      IsolateNameServer.registerPortWithName(
+        _createIsolateReceivePort().sendPort,
+        _portName,
+      );
+
+      debugPrint('✅ NotificationService initialized successfully');
+    } catch (e) {
+      debugPrint('❌ Error initializing NotificationService: $e');
+    }
+  }
+
+  /// Initialize Flutter Local Notifications
+  Future<void> _initializeLocalNotifications() async {
+    _localNotifications = FlutterLocalNotificationsPlugin();
+
+    // Android settings
     const androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    // iOS settings
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
       requestSoundPermission: true,
     );
 
-    const settings = InitializationSettings(
+    const initSettings = InitializationSettings(
       android: androidSettings,
       iOS: iosSettings,
     );
 
-    await _notifications.initialize(
-      settings,
-      onDidReceiveNotificationResponse: _onNotificationTap,
+    await _localNotifications!.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse: _onNotificationTapped,
     );
 
-    _isInitialized = true;
+    await _createNotificationChannels();
   }
 
-  /// เมื่อผู้ใช้กด notification
-  void _onNotificationTap(NotificationResponse response) {
-    final sessionId = response.payload;
-    if (sessionId != null) {
-      // Navigate to TodoPage with sessionId
-      // เมื่อสร้าง routes แล้วจะใช้คำสั่งนี้:
-      // Get.toNamed(AppRoutes.todo, arguments: sessionId);
+  /// Create notification channels
+  Future<void> _createNotificationChannels() async {
+    if (_localNotifications == null) return;
 
-      // สำหรับตอนนี้ให้ print debug
-      debugPrint('🔔 Notification tapped: $sessionId');
-    }
-  }
-
-  /// ตั้งการแจ้งเตือนครั้งต่อไป
-  Future<void> scheduleNextNotification() async {
-    final settings = DatabaseService.instance.getUserSettings();
-
-    if (!settings.notificationsEnabled) return;
-    if (!settings.hasSelectedPainPoints) return;
-
-    final nextTime = _calculateNextNotificationTime(settings);
-    if (nextTime == null) return;
-
-    // สุ่มเลือก pain point และ treatments
-    final randomData = RandomService.instance.selectRandomTreatments(
-      settings.selectedPainPointIds,
-    );
-
-    if (randomData == null) return;
-
-    // สร้าง NotificationSession
-    final session = NotificationSession(
-      id: _uuid.v4(),
-      scheduledTime: nextTime,
-      painPointId: randomData['painPoint'].id,
-      treatmentIds: randomData['treatments'].map<int>((t) => t.id).toList(),
-    );
-
-    // บันทึกลง database
-    await DatabaseService.instance.saveNotificationSession(session);
-
-    // ตั้ง alarm
-    await _scheduleNotification(session, randomData['painPoint'].name);
-  }
-
-  /// คำนวณเวลาแจ้งเตือนครั้งถัดไป
-  DateTime? _calculateNextNotificationTime(UserSettings settings) {
-    final now = DateTime.now();
-    var nextTime = now.add(Duration(minutes: settings.intervalMinutes));
-
-    // วนลูปหาเวลาที่เหมาะสม
-    for (int attempts = 0; attempts < 10; attempts++) {
-      // เช็คว่าเป็นวันทำงานหรือไม่
-      if (!settings.workDays.contains(nextTime.weekday)) {
-        nextTime = _findNextWorkDay(nextTime, settings.workDays);
-        continue;
-      }
-
-      // เช็คว่าอยู่ในช่วงเวลาทำงานหรือไม่
-      if (!_isInWorkingHours(nextTime, settings)) {
-        nextTime = _adjustToWorkingHours(nextTime, settings);
-        continue;
-      }
-
-      // เช็คว่าอยู่ในช่วงพักหรือไม่
-      if (_isInBreakPeriod(nextTime, settings.breakPeriods)) {
-        nextTime = _skipBreakPeriod(nextTime, settings.breakPeriods);
-        continue;
-      }
-
-      // ถ้าผ่านทุกเงื่อนไข
-      return nextTime;
-    }
-
-    return null; // ไม่พบเวลาที่เหมาะสม
-  }
-
-  /// หาวันทำงานถัดไป
-  DateTime _findNextWorkDay(DateTime current, List<int> workDays) {
-    var next = DateTime(current.year, current.month, current.day + 1, 9, 0);
-
-    while (!workDays.contains(next.weekday)) {
-      next = next.add(const Duration(days: 1));
-    }
-
-    return next;
-  }
-
-  /// เช็คว่าอยู่ในช่วงเวลาทำงานหรือไม่
-  bool _isInWorkingHours(DateTime time, UserSettings settings) {
-    final timeMinutes = time.hour * 60 + time.minute;
-    final startMinutes =
-        settings.workStartTime.hour * 60 + settings.workStartTime.minute;
-    final endMinutes =
-        settings.workEndTime.hour * 60 + settings.workEndTime.minute;
-
-    return timeMinutes >= startMinutes && timeMinutes <= endMinutes;
-  }
-
-  /// ปรับเวลาให้อยู่ในช่วงทำงาน
-  DateTime _adjustToWorkingHours(DateTime time, UserSettings settings) {
-    final timeMinutes = time.hour * 60 + time.minute;
-    final startMinutes =
-        settings.workStartTime.hour * 60 + settings.workStartTime.minute;
-
-    if (timeMinutes < startMinutes) {
-      // ก่อนเวลาทำงาน -> ย้ายไปเวลาเริ่มทำงาน
-      return DateTime(
-        time.year,
-        time.month,
-        time.day,
-        settings.workStartTime.hour,
-        settings.workStartTime.minute,
-      );
-    } else {
-      // หลังเวลาทำงาน -> ย้ายไปวันถัดไป
-      return _findNextWorkDay(
-          time, DatabaseService.instance.getUserSettings().workDays);
-    }
-  }
-
-  /// เช็คว่าอยู่ในช่วงพักหรือไม่
-  bool _isInBreakPeriod(DateTime time, List<BreakPeriod> breakPeriods) {
-    for (final breakPeriod in breakPeriods) {
-      if (breakPeriod.isActive && breakPeriod.isCurrentlyInBreak()) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /// ข้ามช่วงเวลาพัก
-  DateTime _skipBreakPeriod(DateTime time, List<BreakPeriod> breakPeriods) {
-    for (final breakPeriod in breakPeriods) {
-      if (breakPeriod.isActive && breakPeriod.isCurrentlyInBreak()) {
-        // ย้ายไปหลังช่วงพัก
-        return DateTime(
-          time.year,
-          time.month,
-          time.day,
-          breakPeriod.endTime.hour,
-          breakPeriod.endTime.minute,
-        ).add(const Duration(minutes: 5)); // เผื่อ 5 นาที
-      }
-    }
-    return time;
-  }
-
-  /// ตั้ง notification จริง
-  Future<void> _scheduleNotification(
-      NotificationSession session, String painPointName) async {
-    const androidDetails = AndroidNotificationDetails(
-      'office_syndrome_channel',
-      'Office Syndrome Notifications',
-      channelDescription: 'Notifications for exercise reminders',
+    // Exercise reminder channel
+    const exerciseChannel = AndroidNotificationChannel(
+      'exercise_reminders',
+      'การแจ้งเตือนออกกำลังกาย',
+      description: 'แจ้งเตือนให้ออกกำลังกายตามเวลาที่กำหนด',
       importance: Importance.high,
       priority: Priority.high,
-      showWhen: true,
       enableVibration: true,
       playSound: true,
     );
 
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
+    // Persistent notification channel
+    const persistentChannel = AndroidNotificationChannel(
+      'persistent_status',
+      'สถานะการทำงาน',
+      description: 'แสดงสถานะการทำงานของระบบแจ้งเตือน',
+      importance: Importance.low,
+      priority: Priority.low,
+      enableVibration: false,
+      playSound: false,
     );
 
-    const details = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
+    await _localNotifications!
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(exerciseChannel);
+
+    await _localNotifications!
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(persistentChannel);
+  }
+
+  /// Handle notification tap
+  void _onNotificationTapped(NotificationResponse response) {
+    try {
+      debugPrint('🔔 Notification tapped: ${response.payload}');
+
+      if (response.payload != null) {
+        // Navigate to todo page with session ID
+        // This will be handled by the main app
+        final port = IsolateNameServer.lookupPortByName('main_isolate_port');
+        port?.send({
+          'type': 'notification_tapped',
+          'sessionId': response.payload,
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error handling notification tap: $e');
+    }
+  }
+
+  /// Start notification scheduling
+  Future<bool> startScheduling() async {
+    try {
+      final settings = await DatabaseService.instance.loadSettings();
+
+      if (!settings.isNotificationEnabled) {
+        debugPrint('🔔 Notifications are disabled');
+        return false;
+      }
+
+      // Calculate next notification time using FIXED INTERVAL LOGIC
+      final nextTime = _calculateNextNotificationTime(settings);
+
+      if (nextTime == null) {
+        debugPrint('🔔 Cannot calculate next notification time');
+        return false;
+      }
+
+      debugPrint('🔔 Next notification scheduled for: $nextTime');
+
+      // Schedule the alarm
+      final success = await AndroidAlarmManager.oneShotAt(
+        nextTime,
+        _alarmId,
+        _backgroundNotificationCallback,
+        exact: true,
+        wakeup: true,
+        rescheduleOnReboot: true,
+      );
+
+      if (success) {
+        debugPrint('✅ Notification scheduled successfully');
+        await _showPersistentStatusNotification(nextTime);
+      } else {
+        debugPrint('❌ Failed to schedule notification');
+      }
+
+      return success;
+    } catch (e) {
+      debugPrint('❌ Error starting notification scheduling: $e');
+      return false;
+    }
+  }
+
+  /// Calculate next notification time with FIXED INTERVAL LOGIC
+  DateTime? _calculateNextNotificationTime(UserSettings settings) {
+    try {
+      final now = DateTime.now();
+      DateTime candidateTime;
+
+      if (settings.lastNotificationTime == null) {
+        // First time - start from now + interval
+        candidateTime =
+            now.add(Duration(minutes: settings.notificationInterval));
+        debugPrint('🕐 First notification: ${candidateTime}');
+      } else {
+        // FIXED INTERVAL: lastNotificationTime + interval
+        candidateTime = settings.lastNotificationTime!
+            .add(Duration(minutes: settings.notificationInterval));
+        debugPrint('🕐 Fixed interval calculation: ${candidateTime}');
+
+        // If calculated time is in the past, move to next valid slot
+        while (candidateTime.isBefore(now)) {
+          candidateTime = candidateTime
+              .add(Duration(minutes: settings.notificationInterval));
+          debugPrint('🕐 Adjusted to future: ${candidateTime}');
+        }
+      }
+
+      // Find next valid time within working hours
+      DateTime? nextValidTime = _findNextValidTime(candidateTime, settings);
+
+      if (nextValidTime != null) {
+        debugPrint('✅ Next valid time found: ${nextValidTime}');
+        return nextValidTime;
+      }
+
+      debugPrint('❌ No valid time found');
+      return null;
+    } catch (e) {
+      debugPrint('❌ Error calculating next notification time: $e');
+      return null;
+    }
+  }
+
+  /// Find next valid time considering working hours and break times
+  DateTime? _findNextValidTime(DateTime startTime, UserSettings settings) {
+    DateTime candidate = startTime;
+
+    // Search for next 7 days to find valid time
+    for (int day = 0; day < 7; day++) {
+      final dayCandidate = candidate.add(Duration(days: day));
+
+      // Check if it's a working day
+      if (!settings.isWorkingDay(dayCandidate.weekday)) {
+        continue;
+      }
+
+      // Check if within working hours
+      if (settings.isWithinWorkingHours(dayCandidate)) {
+        // Check if not in break time
+        if (!settings.isInBreakTime(dayCandidate)) {
+          return dayCandidate;
+        }
+      }
+
+      // If not in working hours, try start of next working day
+      if (day == 0) {
+        final tomorrow = DateTime(
+          dayCandidate.year,
+          dayCandidate.month,
+          dayCandidate.day + 1,
+        );
+        final workStart = settings.workStart;
+        candidate = DateTime(
+          tomorrow.year,
+          tomorrow.month,
+          tomorrow.day,
+          workStart.hour,
+          workStart.minute,
+        );
+      }
+    }
+
+    return null;
+  }
+
+  /// Background callback for alarm manager
+  @pragma('vm:entry-point')
+  static Future<void> _backgroundNotificationCallback() async {
+    try {
+      debugPrint('🔔 Background notification callback triggered');
+
+      // Initialize database in isolate
+      await DatabaseService.instance.initializeInIsolate();
+
+      final settings = await DatabaseService.instance.loadSettings();
+
+      // Check if should notify now
+      final now = DateTime.now();
+      if (!settings.shouldNotifyNow(now)) {
+        debugPrint('🔔 Should not notify now, rescheduling...');
+        await NotificationService.instance._rescheduleNext();
+        return;
+      }
+
+      // Create notification session
+      final sessionId = const Uuid().v4();
+      final session =
+          await NotificationService.instance._createNotificationSession(
+        sessionId,
+        settings,
+      );
+
+      if (session != null) {
+        // Show notification
+        await NotificationService.instance._showExerciseNotification(session);
+
+        // Update lastNotificationTime
+        final updatedSettings = settings.copyWith(
+          lastNotificationTime: now,
+          currentSessionId: sessionId,
+        );
+        await DatabaseService.instance.saveSettings(updatedSettings);
+
+        debugPrint('✅ Notification shown successfully');
+      }
+
+      // Schedule next notification
+      await NotificationService.instance._rescheduleNext();
+    } catch (e) {
+      debugPrint('❌ Error in background notification callback: $e');
+    }
+  }
+
+  /// Create notification session
+  Future<NotificationSession?> _createNotificationSession(
+    String sessionId,
+    UserSettings settings,
+  ) async {
+    try {
+      // Get random pain point and treatments
+      final randomData = await RandomService.instance.getRandomTreatments(
+        settings.selectedPainPointIds,
+      );
+
+      if (randomData == null) {
+        debugPrint('❌ No random treatments available');
+        return null;
+      }
+
+      final session = NotificationSession(
+        id: sessionId,
+        scheduledTime: DateTime.now(),
+        painPointId: randomData['painPoint'].id,
+        treatmentIds: randomData['treatments'].map<int>((t) => t.id).toList(),
+        status: SessionStatusHive.pending,
+      );
+
+      // Save session to database
+      await DatabaseService.instance.saveNotificationSession(session);
+
+      debugPrint('✅ Created notification session: $sessionId');
+      return session;
+    } catch (e) {
+      debugPrint('❌ Error creating notification session: $e');
+      return null;
+    }
+  }
+
+  /// Show exercise notification
+  Future<void> _showExerciseNotification(NotificationSession session) async {
+    try {
+      if (_localNotifications == null) {
+        await _initializeLocalNotifications();
+      }
+
+      final painPoint =
+          await DatabaseService.instance.getPainPointById(session.painPointId);
+      final treatments = await DatabaseService.instance
+          .getTreatmentsByIds(session.treatmentIds);
+
+      if (painPoint == null || treatments.isEmpty) {
+        debugPrint(
+            '❌ Cannot show notification: missing pain point or treatments');
+        return;
+      }
+
+      final title = '🏃‍♂️ เวลาออกกำลังกาย!';
+      final body =
+          'มาทำท่า${painPoint.nameTh}กันเถอะ (${treatments.length} ท่า)';
+
+      const androidDetails = AndroidNotificationDetails(
+        'exercise_reminders',
+        'การแจ้งเตือนออกกำลังกาย',
+        channelDescription: 'แจ้งเตือนให้ออกกำลังกายตามเวลาที่กำหนด',
+        importance: Importance.high,
+        priority: Priority.high,
+        enableVibration: true,
+        playSound: true,
+        actions: [
+          AndroidNotificationAction(
+            'start_exercise',
+            'เริ่มออกกำลังกาย',
+            icon: DrawableResourceAndroidBitmap('@drawable/ic_play'),
+          ),
+          AndroidNotificationAction(
+            'snooze',
+            'เลื่อน 5 นาที',
+            icon: DrawableResourceAndroidBitmap('@drawable/ic_snooze'),
+          ),
+          AndroidNotificationAction(
+            'skip',
+            'ข้าม',
+            icon: DrawableResourceAndroidBitmap('@drawable/ic_skip'),
+          ),
+        ],
+      );
+
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+
+      const notificationDetails = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails,
+      );
+
+      await _localNotifications!.show(
+        session.hashCode,
+        title,
+        body,
+        notificationDetails,
+        payload: session.id,
+      );
+
+      debugPrint('✅ Exercise notification shown');
+    } catch (e) {
+      debugPrint('❌ Error showing exercise notification: $e');
+    }
+  }
+
+  /// Show persistent status notification
+  Future<void> _showPersistentStatusNotification(DateTime nextTime) async {
+    try {
+      if (_localNotifications == null) return;
+
+      final timeText =
+          '${nextTime.hour.toString().padLeft(2, '0')}:${nextTime.minute.toString().padLeft(2, '0')}';
+
+      const androidDetails = AndroidNotificationDetails(
+        'persistent_status',
+        'สถานะการทำงาน',
+        channelDescription: 'แสดงสถานะการทำงานของระบบแจ้งเตือน',
+        importance: Importance.low,
+        priority: Priority.low,
+        ongoing: true,
+        autoCancel: false,
+        enableVibration: false,
+        playSound: false,
+      );
+
+      const notificationDetails = NotificationDetails(android: androidDetails);
+
+      await _localNotifications!.show(
+        999999, // Fixed ID for persistent notification
+        '⏰ Office Syndrome Helper ทำงานอยู่',
+        'แจ้งเตือนครั้งถัดไป: วันนี้ $timeText',
+        notificationDetails,
+      );
+    } catch (e) {
+      debugPrint('❌ Error showing persistent notification: $e');
+    }
+  }
+
+  /// Reschedule next notification
+  Future<void> _rescheduleNext() async {
+    try {
+      // Cancel current alarm
+      await AndroidAlarmManager.cancel(_alarmId);
+
+      // Start scheduling again
+      await startScheduling();
+    } catch (e) {
+      debugPrint('❌ Error rescheduling: $e');
+    }
+  }
+
+  /// Stop all notifications
+  Future<void> stopScheduling() async {
+    try {
+      await AndroidAlarmManager.cancel(_alarmId);
+      await _localNotifications?.cancelAll();
+      debugPrint('✅ All notifications stopped');
+    } catch (e) {
+      debugPrint('❌ Error stopping notifications: $e');
+    }
+  }
+
+  /// Test notification (for development)
+  Future<void> testNotification() async {
+    try {
+      debugPrint('🧪 Testing notification...');
+
+      final sessionId = _uuid.v4();
+      final settings = await DatabaseService.instance.loadSettings();
+
+      final session = await _createNotificationSession(sessionId, settings);
+      if (session != null) {
+        await _showExerciseNotification(session);
+        debugPrint('✅ Test notification sent');
+      }
+    } catch (e) {
+      debugPrint('❌ Error testing notification: $e');
+    }
+  }
+
+  /// Create isolate receive port
+  ReceivePort _createIsolateReceivePort() {
+    final port = ReceivePort();
+    port.listen((data) {
+      debugPrint('📩 Received isolate message: $data');
+      // Handle isolate messages here
+    });
+    return port;
+  }
+
+  /// Handle notification actions (snooze, skip)
+  Future<void> handleNotificationAction(String action, String sessionId) async {
+    try {
+      final session =
+          await DatabaseService.instance.getNotificationSession(sessionId);
+      if (session == null) return;
+
+      switch (action) {
+        case 'snooze':
+          await _handleSnooze(session);
+          break;
+        case 'skip':
+          await _handleSkip(session);
+          break;
+        case 'start_exercise':
+          await _handleStartExercise(session);
+          break;
+      }
+    } catch (e) {
+      debugPrint('❌ Error handling notification action: $e');
+    }
+  }
+
+  Future<void> _handleSnooze(NotificationSession session) async {
+    final settings = await DatabaseService.instance.loadSettings();
+    final snoozeTime =
+        DateTime.now().add(Duration(minutes: settings.snoozeInterval));
+
+    // Update session
+    final updatedSession = session.copyWith(
+      status: SessionStatusHive.snoozed,
+      snoozeCount: session.snoozeCount + 1,
+      snoozeTimes: [...session.snoozeTimes ?? [], DateTime.now()],
     );
+    await DatabaseService.instance.saveNotificationSession(updatedSession);
 
-    await _notifications.zonedSchedule(
-      session.id.hashCode, // Use hashCode as int ID
-      '⏰ ถึงเวลาดูแล: $painPointName',
-      'กดเพื่อเริ่มออกกำลังกาย 💪',
-      tz.TZDateTime.from(session.scheduledTime, tz.local),
-      details,
-      payload: session.id,
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+    // Schedule snooze notification
+    await AndroidAlarmManager.oneShotAt(
+      snoozeTime,
+      sessionId.hashCode,
+      _backgroundNotificationCallback,
+      exact: true,
     );
-
-    debugPrint('🔔 Notification scheduled for: ${session.scheduledTime}');
   }
 
-  /// ยกเลิกการแจ้งเตือนทั้งหมด
-  Future<void> cancelAllNotifications() async {
-    await _notifications.cancelAll();
-    debugPrint('🔕 All notifications cancelled');
+  Future<void> _handleSkip(NotificationSession session) async {
+    final updatedSession = session.copyWith(
+      status: SessionStatusHive.skipped,
+      completedTime: DateTime.now(),
+    );
+    await DatabaseService.instance.saveNotificationSession(updatedSession);
+
+    // Update lastNotificationTime to maintain interval
+    final settings = await DatabaseService.instance.loadSettings();
+    final updatedSettings = settings.copyWith(
+      lastNotificationTime: DateTime.now(),
+      currentSessionId: null,
+    );
+    await DatabaseService.instance.saveSettings(updatedSettings);
   }
 
-  /// ยกเลิกการแจ้งเตือนเฉพาะ
-  Future<void> cancelNotification(String sessionId) async {
-    await _notifications.cancel(sessionId.hashCode);
-    debugPrint('🔕 Notification cancelled: $sessionId');
-  }
-
-  /// เลื่อนการแจ้งเตือน
-  Future<void> snoozeNotification(String sessionId, int minutes) async {
-    final session = DatabaseService.instance.getNotificationSession(sessionId);
-    if (session == null) return;
-
-    // ยกเลิก notification เดิม
-    await cancelNotification(sessionId);
-
-    // สร้าง session ใหม่ที่เลื่อนไป
-    final snoozedSession = session.snooze(minutes);
-    await DatabaseService.instance.saveNotificationSession(snoozedSession);
-
-    // ตั้ง notification ใหม่
-    final painPoint = DatabaseService.instance
-        .getAllPainPoints()
-        .firstWhere((p) => p.id == session.painPointId);
-
-    await _scheduleNotification(snoozedSession, painPoint.name);
-    debugPrint('😴 Notification snoozed for $minutes minutes');
-  }
-
-  /// ข้ามการแจ้งเตือน
-  Future<void> skipNotification(String sessionId) async {
-    final session = DatabaseService.instance.getNotificationSession(sessionId);
-    if (session == null) return;
-
-    // ยกเลิก notification
-    await cancelNotification(sessionId);
-
-    // อัปเดตสถานะเป็น skipped
-    final skippedSession = session.skip();
-    await DatabaseService.instance.saveNotificationSession(skippedSession);
-
-    // ตั้งการแจ้งเตือนครั้งถัดไป
-    await scheduleNextNotification();
-    debugPrint('⏭️ Notification skipped');
-  }
-
-  /// เสร็จสิ้นการออกกำลังกาย
-  Future<void> completeNotification(String sessionId) async {
-    final session = DatabaseService.instance.getNotificationSession(sessionId);
-    if (session == null) return;
-
-    // ยกเลิก notification
-    await cancelNotification(sessionId);
-
-    // อัปเดตสถานะเป็น completed
-    final completedSession = session.markAsCompleted();
-    await DatabaseService.instance.saveNotificationSession(completedSession);
-
-    // ตั้งการแจ้งเตือนครั้งถัดไป
-    await scheduleNextNotification();
-    debugPrint('✅ Notification completed');
+  Future<void> _handleStartExercise(NotificationSession session) async {
+    final updatedSession = session.copyWith(
+      status: SessionStatusHive.inProgress,
+      actualStartTime: DateTime.now(),
+    );
+    await DatabaseService.instance.saveNotificationSession(updatedSession);
   }
 }

@@ -1,219 +1,228 @@
 import 'package:hive/hive.dart';
 
-part 'user_settings.g.dart';
-
-@HiveType(typeId: 2)
+@HiveType(typeId: 1)
 class UserSettings extends HiveObject {
   @HiveField(0)
-  final bool notificationsEnabled;
+  List<int> selectedPainPointIds;
 
   @HiveField(1)
-  final int intervalMinutes; // ทุกกี่นาทีแจ้งเตือน
+  int notificationInterval; // in minutes
 
   @HiveField(2)
-  final TimeOfDay workStartTime;
+  bool isNotificationEnabled;
 
   @HiveField(3)
-  final TimeOfDay workEndTime;
+  bool isSoundEnabled;
 
   @HiveField(4)
-  final List<int> workDays; // 1=จันทร์, 7=อาทิตย์
+  bool isVibrationEnabled;
 
   @HiveField(5)
-  final List<BreakPeriod> breakPeriods;
+  String workStartTime; // HH:mm format
 
   @HiveField(6)
-  final bool soundEnabled;
+  String workEndTime; // HH:mm format
 
   @HiveField(7)
-  final bool vibrationEnabled;
+  List<int> workingDays; // 1=Monday, 7=Sunday
 
   @HiveField(8)
-  final int maxSnoozeCount; // เลื่อนได้สูงสุดกี่ครั้ง
+  String? currentSessionId;
 
   @HiveField(9)
-  final List<int> snoozeOptions; // ตัวเลือกเลื่อน (นาที)
+  DateTime? lastNotificationTime;
 
   @HiveField(10)
-  final List<int> selectedPainPointIds; // จุดที่เลือกไว้ (สูงสุด 3)
+  bool hasCompletedOnboarding;
+
+  // NEW CRITICAL FIELDS
+  @HiveField(11)
+  bool hasRequestedPermissions;
+
+  @HiveField(12)
+  List<String>? breakTimes; // ["12:00-13:00", "15:00-15:15"] format
+
+  @HiveField(13)
+  String? lastNotificationSessionId;
+
+  @HiveField(14)
+  int snoozeInterval; // in minutes, default 5
+
+  @HiveField(15)
+  bool isFirstTimeUser;
 
   UserSettings({
-    this.notificationsEnabled = true,
-    this.intervalMinutes = 60,
-    TimeOfDay? workStartTime, // ✅ เปลี่ยนเป็น nullable
-    TimeOfDay? workEndTime, // ✅ เปลี่ยนเป็น nullable
-    this.workDays = const [1, 2, 3, 4, 5], // จ-ศ
-    this.breakPeriods = const [],
-    this.soundEnabled = true,
-    this.vibrationEnabled = true,
-    this.maxSnoozeCount = 3,
-    this.snoozeOptions = const [5, 15, 30],
     this.selectedPainPointIds = const [],
-  })  : workStartTime = workStartTime ??
-            TimeOfDay(hour: 9, minute: 0), // ✅ ใช้ initializer list
-        workEndTime = workEndTime ??
-            TimeOfDay(hour: 18, minute: 0); // ✅ ใช้ initializer list
+    this.notificationInterval = 60,
+    this.isNotificationEnabled = true,
+    this.isSoundEnabled = true,
+    this.isVibrationEnabled = true,
+    this.workStartTime = '09:00',
+    this.workEndTime = '17:00',
+    this.workingDays = const [1, 2, 3, 4, 5], // Mon-Fri
+    this.currentSessionId,
+    this.lastNotificationTime,
+    this.hasCompletedOnboarding = false,
+    this.hasRequestedPermissions = false,
+    this.breakTimes,
+    this.lastNotificationSessionId,
+    this.snoozeInterval = 5,
+    this.isFirstTimeUser = true,
+  });
 
-  UserSettings copyWith({
-    bool? notificationsEnabled,
-    int? intervalMinutes,
-    TimeOfDay? workStartTime,
-    TimeOfDay? workEndTime,
-    List<int>? workDays,
-    List<BreakPeriod>? breakPeriods,
-    bool? soundEnabled,
-    bool? vibrationEnabled,
-    int? maxSnoozeCount,
-    List<int>? snoozeOptions,
-    List<int>? selectedPainPointIds,
-  }) {
-    return UserSettings(
-      notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
-      intervalMinutes: intervalMinutes ?? this.intervalMinutes,
-      workStartTime: workStartTime ?? this.workStartTime,
-      workEndTime: workEndTime ?? this.workEndTime,
-      workDays: workDays ?? this.workDays,
-      breakPeriods: breakPeriods ?? this.breakPeriods,
-      soundEnabled: soundEnabled ?? this.soundEnabled,
-      vibrationEnabled: vibrationEnabled ?? this.vibrationEnabled,
-      maxSnoozeCount: maxSnoozeCount ?? this.maxSnoozeCount,
-      snoozeOptions: snoozeOptions ?? this.snoozeOptions,
-      selectedPainPointIds: selectedPainPointIds ?? this.selectedPainPointIds,
+  // Helper methods for time calculations
+  DateTime get workStart {
+    final parts = workStartTime.split(':');
+    final now = DateTime.now();
+    return DateTime(
+      now.year,
+      now.month,
+      now.day,
+      int.parse(parts[0]),
+      int.parse(parts[1]),
     );
   }
 
-  // Helper methods
-  bool get hasSelectedPainPoints => selectedPainPointIds.isNotEmpty;
-  bool get isWorkDay => workDays.contains(DateTime.now().weekday);
-
-  @override
-  String toString() {
-    return 'UserSettings{interval: ${intervalMinutes}min, painPoints: ${selectedPainPointIds.length}}';
-  }
-}
-
-// Helper class สำหรับเวลาพัก
-@HiveType(typeId: 3)
-class TimeOfDay extends HiveObject {
-  @HiveField(0)
-  final int hour;
-
-  @HiveField(1)
-  final int minute;
-
-  TimeOfDay({
-    // ✅ ลบ const
-    required this.hour,
-    required this.minute,
-  });
-
-  // Convert to DateTime สำหรับวันนี้
-  DateTime toDateTime() {
+  DateTime get workEnd {
+    final parts = workEndTime.split(':');
     final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day, hour, minute);
-  }
-
-  // แสดงเวลาแบบไทย
-  String get displayTime {
-    final h = hour.toString().padLeft(2, '0');
-    final m = minute.toString().padLeft(2, '0');
-    return '$h:$m';
-  }
-
-  TimeOfDay copyWith({int? hour, int? minute}) {
-    return TimeOfDay(
-      hour: hour ?? this.hour,
-      minute: minute ?? this.minute,
+    return DateTime(
+      now.year,
+      now.month,
+      now.day,
+      int.parse(parts[0]),
+      int.parse(parts[1]),
     );
   }
 
-  @override
-  String toString() => displayTime;
+  // Check if current time is within working hours
+  bool isWithinWorkingHours(DateTime time) {
+    final timeOfDay = time.hour * 60 + time.minute;
+    final startMinutes = workStart.hour * 60 + workStart.minute;
+    final endMinutes = workEnd.hour * 60 + workEnd.minute;
 
-  // เพิ่ม equality operators สำหรับการเปรียบเทียบ
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is TimeOfDay &&
-          runtimeType == other.runtimeType &&
-          hour == other.hour &&
-          minute == other.minute;
+    return timeOfDay >= startMinutes && timeOfDay <= endMinutes;
+  }
 
-  @override
-  int get hashCode => hour.hashCode ^ minute.hashCode;
-}
+  // Check if current day is a working day
+  bool isWorkingDay(int weekday) {
+    return workingDays.contains(weekday);
+  }
 
-// Helper class สำหรับช่วงเวลาพัก
-@HiveType(typeId: 4)
-class BreakPeriod extends HiveObject {
-  @HiveField(0)
-  final String name;
+  // Check if current time is in break time
+  bool isInBreakTime(DateTime time) {
+    if (breakTimes == null || breakTimes!.isEmpty) return false;
 
-  @HiveField(1)
-  final TimeOfDay startTime;
+    final timeMinutes = time.hour * 60 + time.minute;
 
-  @HiveField(2)
-  final TimeOfDay endTime;
+    for (final breakTime in breakTimes!) {
+      final parts = breakTime.split('-');
+      if (parts.length != 2) continue;
 
-  @HiveField(3)
-  final bool isActive;
+      final startParts = parts[0].split(':');
+      final endParts = parts[1].split(':');
 
-  BreakPeriod({
-    required this.name,
-    required this.startTime,
-    required this.endTime,
-    this.isActive = true,
-  });
+      final startMinutes =
+          int.parse(startParts[0]) * 60 + int.parse(startParts[1]);
+      final endMinutes = int.parse(endParts[0]) * 60 + int.parse(endParts[1]);
 
-  // เช็คว่าเวลาปัจจุบันอยู่ในช่วงพักหรือไม่
-  bool isCurrentlyInBreak() {
-    final now = DateTime.now();
-    final currentTime = TimeOfDay(hour: now.hour, minute: now.minute);
+      if (timeMinutes >= startMinutes && timeMinutes <= endMinutes) {
+        return true;
+      }
+    }
 
-    final currentMinutes = currentTime.hour * 60 + currentTime.minute;
-    final startMinutes = startTime.hour * 60 + startTime.minute;
-    final endMinutes = endTime.hour * 60 + endTime.minute;
+    return false;
+  }
 
-    if (startMinutes <= endMinutes) {
-      // ช่วงเวลาปกติ (ไม่ข้ามวัน)
-      return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+  // Calculate next notification time with fixed interval logic
+  DateTime calculateNextNotificationTime() {
+    if (lastNotificationTime == null) {
+      // First time - start from now
+      return DateTime.now().add(Duration(minutes: notificationInterval));
     } else {
-      // ช่วงเวลาข้ามวัน (เช่น 23:00 - 01:00)
-      return currentMinutes >= startMinutes || currentMinutes <= endMinutes;
+      // Next time - from lastNotificationTime + interval
+      return lastNotificationTime!.add(Duration(minutes: notificationInterval));
     }
   }
 
-  BreakPeriod copyWith({
-    String? name,
-    TimeOfDay? startTime,
-    TimeOfDay? endTime,
-    bool? isActive,
+  // Check if we should notify now
+  bool shouldNotifyNow(DateTime now) {
+    // Check working day
+    if (!isWorkingDay(now.weekday)) return false;
+
+    // Check working hours
+    if (!isWithinWorkingHours(now)) return false;
+
+    // Check break time
+    if (isInBreakTime(now)) return false;
+
+    return true;
+  }
+
+  // Create default settings
+  factory UserSettings.defaultSettings() {
+    return UserSettings(
+      selectedPainPointIds: [],
+      notificationInterval: 60,
+      isNotificationEnabled: true,
+      isSoundEnabled: true,
+      isVibrationEnabled: true,
+      workStartTime: '09:00',
+      workEndTime: '17:00',
+      workingDays: [1, 2, 3, 4, 5],
+      hasCompletedOnboarding: false,
+      hasRequestedPermissions: false,
+      breakTimes: ['12:00-13:00'], // Default lunch break
+      snoozeInterval: 5,
+      isFirstTimeUser: true,
+    );
+  }
+
+  // Copy with method
+  UserSettings copyWith({
+    List<int>? selectedPainPointIds,
+    int? notificationInterval,
+    bool? isNotificationEnabled,
+    bool? isSoundEnabled,
+    bool? isVibrationEnabled,
+    String? workStartTime,
+    String? workEndTime,
+    List<int>? workingDays,
+    String? currentSessionId,
+    DateTime? lastNotificationTime,
+    bool? hasCompletedOnboarding,
+    bool? hasRequestedPermissions,
+    List<String>? breakTimes,
+    String? lastNotificationSessionId,
+    int? snoozeInterval,
+    bool? isFirstTimeUser,
   }) {
-    return BreakPeriod(
-      name: name ?? this.name,
-      startTime: startTime ?? this.startTime,
-      endTime: endTime ?? this.endTime,
-      isActive: isActive ?? this.isActive,
+    return UserSettings(
+      selectedPainPointIds: selectedPainPointIds ?? this.selectedPainPointIds,
+      notificationInterval: notificationInterval ?? this.notificationInterval,
+      isNotificationEnabled:
+          isNotificationEnabled ?? this.isNotificationEnabled,
+      isSoundEnabled: isSoundEnabled ?? this.isSoundEnabled,
+      isVibrationEnabled: isVibrationEnabled ?? this.isVibrationEnabled,
+      workStartTime: workStartTime ?? this.workStartTime,
+      workEndTime: workEndTime ?? this.workEndTime,
+      workingDays: workingDays ?? this.workingDays,
+      currentSessionId: currentSessionId ?? this.currentSessionId,
+      lastNotificationTime: lastNotificationTime ?? this.lastNotificationTime,
+      hasCompletedOnboarding:
+          hasCompletedOnboarding ?? this.hasCompletedOnboarding,
+      hasRequestedPermissions:
+          hasRequestedPermissions ?? this.hasRequestedPermissions,
+      breakTimes: breakTimes ?? this.breakTimes,
+      lastNotificationSessionId:
+          lastNotificationSessionId ?? this.lastNotificationSessionId,
+      snoozeInterval: snoozeInterval ?? this.snoozeInterval,
+      isFirstTimeUser: isFirstTimeUser ?? this.isFirstTimeUser,
     );
   }
 
   @override
   String toString() {
-    return 'BreakPeriod{$name: ${startTime.displayTime}-${endTime.displayTime}}';
+    return 'UserSettings(painPoints: $selectedPainPointIds, interval: ${notificationInterval}min, enabled: $isNotificationEnabled)';
   }
-
-  // เพิ่ม equality operators
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is BreakPeriod &&
-          runtimeType == other.runtimeType &&
-          name == other.name &&
-          startTime == other.startTime &&
-          endTime == other.endTime &&
-          isActive == other.isActive;
-
-  @override
-  int get hashCode =>
-      name.hashCode ^ startTime.hashCode ^ endTime.hashCode ^ isActive.hashCode;
 }

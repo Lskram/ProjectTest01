@@ -1,5 +1,5 @@
-import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
+import 'package:flutter/foundation.dart';
 import '../models/notification_session.dart';
 import '../services/database_service.dart';
 
@@ -7,325 +7,587 @@ class StatisticsController extends GetxController {
   static StatisticsController get instance => Get.find();
 
   // Reactive variables
-  final _todayStats = <String, dynamic>{}.obs;
-  final _weeklyStats = <String, dynamic>{}.obs;
   final _isLoading = false.obs;
+  final _todaySessions = <NotificationSession>[].obs;
+  final _weeklySessions = <NotificationSession>[].obs;
+  final _monthlySessions = <NotificationSession>[].obs;
 
   // Getters
-  Map<String, dynamic> get todayStats => _todayStats;
-  Map<String, dynamic> get weeklyStats => _weeklyStats;
   bool get isLoading => _isLoading.value;
+  List<NotificationSession> get todaySessions => _todaySessions;
+  List<NotificationSession> get weeklySessions => _weeklySessions;
+  List<NotificationSession> get monthlySessions => _monthlySessions;
 
-  // Today's statistics
-  int get todayTotalSessions => todayStats['totalSessions'] ?? 0;
-  int get todayCompletedSessions => todayStats['completedSessions'] ?? 0;
-  int get todaySkippedSessions => todayStats['skippedSessions'] ?? 0;
-  int get todaySnoozedSessions => todayStats['snoozedSessions'] ?? 0;
-  double get todayCompletionRate => todayStats['completionRate'] ?? 0.0;
+  // Today statistics
+  int get todayTotalSessions => _todaySessions.length;
+  int get todayCompletedSessions => _todaySessions
+      .where((s) => s.status == SessionStatusHive.completed)
+      .length;
+  int get todaySkippedSessions =>
+      _todaySessions.where((s) => s.status == SessionStatusHive.skipped).length;
+  int get todaySnoozedSessions =>
+      _todaySessions.where((s) => s.status == SessionStatusHive.snoozed).length;
+  double get todayCompletionRate => todayTotalSessions > 0
+      ? todayCompletedSessions / todayTotalSessions
+      : 0.0;
 
   // Weekly statistics
-  int get weeklyTotalSessions => weeklyStats['totalSessions'] ?? 0;
-  int get weeklyCompletedSessions => weeklyStats['completedSessions'] ?? 0;
-  double get weeklyCompletionRate => weeklyStats['completionRate'] ?? 0.0;
-  Map<DateTime, Map<String, int>> get dailyStats =>
-      weeklyStats['dailyStats'] ?? <DateTime, Map<String, int>>{};
+  int get weeklyTotalSessions => _weeklySessions.length;
+  int get weeklyCompletedSessions => _weeklySessions
+      .where((s) => s.status == SessionStatusHive.completed)
+      .length;
+  int get weeklySkippedSessions => _weeklySessions
+      .where((s) => s.status == SessionStatusHive.skipped)
+      .length;
+  int get weeklySnoozedSessions => _weeklySessions
+      .where((s) => s.status == SessionStatusHive.snoozed)
+      .length;
+  double get weeklyCompletionRate => weeklyTotalSessions > 0
+      ? weeklyCompletedSessions / weeklyTotalSessions
+      : 0.0;
+
+  // Monthly statistics
+  int get monthlyTotalSessions => _monthlySessions.length;
+  int get monthlyCompletedSessions => _monthlySessions
+      .where((s) => s.status == SessionStatusHive.completed)
+      .length;
+  int get monthlySkippedSessions => _monthlySessions
+      .where((s) => s.status == SessionStatusHive.skipped)
+      .length;
+  int get monthlySnoozedSessions => _monthlySessions
+      .where((s) => s.status == SessionStatusHive.snoozed)
+      .length;
+  double get monthlyCompletionRate => monthlyTotalSessions > 0
+      ? monthlyCompletedSessions / monthlyTotalSessions
+      : 0.0;
+
+  // Advanced statistics
+  int get activeDaysThisMonth {
+    final uniqueDays = <String>{};
+    for (final session in _monthlySessions) {
+      final dateKey =
+          '${session.scheduledTime.year}-${session.scheduledTime.month}-${session.scheduledTime.day}';
+      uniqueDays.add(dateKey);
+    }
+    return uniqueDays.length;
+  }
+
+  double get averageSessionsPerDay {
+    if (activeDaysThisMonth == 0) return 0.0;
+    return monthlyTotalSessions / activeDaysThisMonth;
+  }
+
+  // Daily stats for the week (for chart)
+  Map<String, int> get dailyStatsForWeek {
+    final stats = <String, int>{};
+    final now = DateTime.now();
+
+    for (int i = 0; i < 7; i++) {
+      final day = now.subtract(Duration(days: 6 - i));
+      final dayKey =
+          '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
+
+      final daySessionsCount = _weeklySessions.where((session) {
+        final sessionDay = session.scheduledTime;
+        return sessionDay.year == day.year &&
+            sessionDay.month == day.month &&
+            sessionDay.day == day.day;
+      }).length;
+
+      stats[dayKey] = daySessionsCount;
+    }
+
+    return stats;
+  }
+
+  // Weekly trends for the month
+  Map<int, int> get weeklyTrends {
+    final trends = <int, int>{};
+    final now = DateTime.now();
+
+    for (int week = 1; week <= 4; week++) {
+      final weekStart = now.subtract(Duration(days: (5 - week) * 7));
+      final weekEnd = weekStart.add(const Duration(days: 6));
+
+      final weekSessions = _monthlySessions.where((session) {
+        return session.scheduledTime
+                .isAfter(weekStart.subtract(const Duration(days: 1))) &&
+            session.scheduledTime
+                .isBefore(weekEnd.add(const Duration(days: 1)));
+      }).length;
+
+      trends[week] = weekSessions;
+    }
+
+    return trends;
+  }
 
   @override
   void onInit() {
     super.onInit();
-    loadStatistics();
+    debugPrint('📊 StatisticsController initialized');
+    _initialize();
   }
 
-  /// Load all statistics
-  Future<void> loadStatistics() async {
+  /// Initialize controller
+  Future<void> _initialize() async {
     try {
       _isLoading.value = true;
-
-      // Load today's stats
-      final todayData = DatabaseService.instance.getTodayStats();
-      _todayStats.assignAll(todayData);
-
-      // Load weekly stats
-      final weeklyData = DatabaseService.instance.getWeeklyStats();
-      _weeklyStats.assignAll(weeklyData);
-
-      debugPrint('✅ Statistics loaded');
+      await _loadAllStatistics();
     } catch (e) {
-      debugPrint('❌ Load statistics error: $e');
+      debugPrint('❌ Error initializing StatisticsController: $e');
     } finally {
       _isLoading.value = false;
     }
   }
 
-  /// Get sessions for specific date
-  List<NotificationSession> getSessionsForDate(DateTime date) {
-    return DatabaseService.instance.getSessionsForDate(date);
+  /// Load all statistics
+  Future<void> _loadAllStatistics() async {
+    try {
+      // Load today's sessions
+      final todayStats = await DatabaseService.instance.getStatistics(days: 1);
+      _todaySessions.assignAll(todayStats['sessions'] ?? []);
+
+      // Load weekly sessions
+      final weeklyStats = await DatabaseService.instance.getStatistics(days: 7);
+      _weeklySessions.assignAll(weeklyStats['sessions'] ?? []);
+
+      // Load monthly sessions
+      final monthlyStats =
+          await DatabaseService.instance.getStatistics(days: 30);
+      _monthlySessions.assignAll(monthlyStats['sessions'] ?? []);
+
+      debugPrint(
+          '📊 Statistics loaded: Today: ${todayTotalSessions}, Weekly: ${weeklyTotalSessions}, Monthly: ${monthlyTotalSessions}');
+    } catch (e) {
+      debugPrint('❌ Error loading statistics: $e');
+    }
   }
 
-  /// Get completion rate for specific date
-  double getCompletionRateForDate(DateTime date) {
-    final sessions = getSessionsForDate(date);
-    if (sessions.isEmpty) return 0.0;
-
-    final completedCount = sessions.where((s) => s.isCompleted).length;
-    return completedCount / sessions.length;
+  /// Refresh all data
+  Future<void> refresh() async {
+    try {
+      debugPrint('🔄 Refreshing statistics...');
+      _isLoading.value = true;
+      await _loadAllStatistics();
+      debugPrint('✅ Statistics refreshed');
+    } catch (e) {
+      debugPrint('❌ Error refreshing statistics: $e');
+      Get.snackbar('ข้อผิดพลาด', 'ไม่สามารถรีเฟรชข้อมูลได้');
+    } finally {
+      _isLoading.value = false;
+    }
   }
 
-  /// Get most common pain point this week
-  String getMostCommonPainPoint() {
-    final sessions = DatabaseService.instance.getSessionsForLastWeek();
-    if (sessions.isEmpty) return 'ไม่มีข้อมูล';
+  /// Get insights for a specific period
+  List<String> getInsights(String period) {
+    final insights = <String>[];
 
-    final painPointCounts = <int, int>{};
-    for (final session in sessions) {
-      painPointCounts[session.painPointId] =
-          (painPointCounts[session.painPointId] ?? 0) + 1;
+    switch (period) {
+      case 'วันนี้':
+        _generateTodayInsights(insights);
+        break;
+      case 'สัปดาห์นี้':
+        _generateWeeklyInsights(insights);
+        break;
+      case 'เดือนนี้':
+        _generateMonthlyInsights(insights);
+        break;
     }
 
-    if (painPointCounts.isEmpty) return 'ไม่มีข้อมูล';
-
-    // Find most common pain point
-    final mostCommonId =
-        painPointCounts.entries.reduce((a, b) => a.value > b.value ? a : b).key;
-
-    final painPoint = DatabaseService.instance
-        .getAllPainPoints()
-        .where((p) => p.id == mostCommonId)
-        .firstOrNull;
-
-    return painPoint?.name ?? 'ไม่ทราบ';
+    return insights;
   }
 
-  /// Get best time of day (highest completion rate)
-  String getBestTimeOfDay() {
-    final sessions = DatabaseService.instance
-        .getSessionsForLastWeek()
-        .where((s) => s.isCompleted)
-        .toList();
+  void _generateTodayInsights(List<String> insights) {
+    if (todayTotalSessions == 0) {
+      insights.add('วันนี้ยังไม่มีกิจกรรมออกกำลังกาย ลองเปิดการแจ้งเตือนดูนะ');
+      return;
+    }
 
-    if (sessions.isEmpty) return 'ไม่มีข้อมูล';
+    if (todayCompletionRate >= 0.8) {
+      insights.add('วันนี้ทำได้ดีมาก! คงสภาพแบบนี้ต่อไป');
+    } else if (todayCompletionRate >= 0.5) {
+      insights.add('วันนี้ทำได้ปานกลาง ลองเพิ่มความมั่นใจในตัวเอง');
+    } else {
+      insights.add('วันนี้อาจจะยุ่งมาก พรุ่งนี้ลองทำดีกว่านี้นะ');
+    }
 
-    // Group by hour
-    final hourCounts = <int, int>{};
-    for (final session in sessions) {
+    if (todaySkippedSessions > todayCompletedSessions) {
+      insights
+          .add('ข้ามกิจกรรมค่อนข้างบ่อย ลองปรับเวลาแจ้งเตือนให้เหมาะสมกว่านี้');
+    }
+
+    if (todaySnoozedSessions > 2) {
+      insights.add('เลื่อนการแจ้งเตือนบ่อย อาจจะลองลดช่วงเวลาให้สั้นลง');
+    }
+  }
+
+  void _generateWeeklyInsights(List<String> insights) {
+    if (weeklyTotalSessions == 0) {
+      insights.add('สัปดาห์นี้ยังไม่มีกิจกรรม ลองตั้งเป้าหมายเล็กๆ เริ่มต้น');
+      return;
+    }
+
+    final dailyAverage = weeklyTotalSessions / 7;
+    if (dailyAverage >= 5) {
+      insights.add(
+          'เฉลี่ย ${dailyAverage.toStringAsFixed(1)} ครั้งต่อวัน - ยอดเยี่ยม!');
+    } else if (dailyAverage >= 3) {
+      insights.add(
+          'เฉลี่ย ${dailyAverage.toStringAsFixed(1)} ครั้งต่อวัน - ดีแล้ว');
+    } else {
+      insights.add(
+          'เฉลี่ย ${dailyAverage.toStringAsFixed(1)} ครั้งต่อวัน - ควรเพิ่มขึ้น');
+    }
+
+    if (weeklyCompletionRate >= 0.7) {
+      insights.add(
+          'อัตราความสำเร็จดี การออกกำลังกายสม่ำเสมอจะช่วยลดอาการปวดเมื่อย');
+    } else {
+      insights.add('ลองหาเวลาที่เหมาะสมกับตัวเองมากกว่านี้');
+    }
+
+    // Analyze daily pattern
+    final dailyStats = dailyStatsForWeek;
+    final maxDay =
+        dailyStats.entries.reduce((a, b) => a.value > b.value ? a : b);
+    final minDay =
+        dailyStats.entries.reduce((a, b) => a.value < b.value ? a : b);
+
+    if (maxDay.value > minDay.value * 2) {
+      insights.add('มีการออกกำลังกายไม่สม่ำเสมอ ลองกระจายให้ทั่วทั้งสัปดาห์');
+    }
+  }
+
+  void _generateMonthlyInsights(List<String> insights) {
+    if (monthlyTotalSessions == 0) {
+      insights.add('เดือนนี้ยังไม่มีกิจกรรม มาเริ่มต้นใช้งานแอปกันเถอะ');
+      return;
+    }
+
+    insights.add('ในเดือนนี้มี ${activeDaysThisMonth} วันที่มีการออกกำลังกาย');
+
+    final dailyAvg = averageSessionsPerDay;
+    if (dailyAvg >= 4) {
+      insights.add(
+          'เฉลี่ย ${dailyAvg.toStringAsFixed(1)} ครั้งต่อวัน - สุดยอด! 🎉');
+    } else if (dailyAvg >= 2) {
+      insights
+          .add('เฉลี่ย ${dailyAvg.toStringAsFixed(1)} ครั้งต่อวัน - ดีมาก!');
+    } else {
+      insights.add(
+          'เฉลี่ย ${dailyAvg.toStringAsFixed(1)} ครั้งต่อวัน - ยังพอปรับปรุงได้');
+    }
+
+    // Analyze monthly trends
+    final trends = weeklyTrends;
+    if (trends.length >= 2) {
+      final thisWeek = trends[4] ?? 0;
+      final lastWeek = trends[3] ?? 0;
+
+      if (thisWeek > lastWeek) {
+        insights.add('สัปดาห์นี้ทำได้มากขึ้น แสดงว่าเริ่มเข้าสู่จังหวะแล้ว');
+      } else if (thisWeek < lastWeek) {
+        insights.add('สัปดาห์นี้ลดลงไป ลองหาแรงจูงใจใหม่');
+      }
+    }
+
+    if (monthlyCompletionRate >= 0.8) {
+      insights.add('อัตราความสำเร็จสูงมาก น่าจะช่วยลดอาการปวดเมื่อยได้มาก');
+    } else if (monthlyCompletionRate >= 0.6) {
+      insights.add('อัตราความสำเร็จดี แต่ยังปรับปรุงได้อีก');
+    } else {
+      insights.add('อัตราความสำเร็จยังต่ำ ลองหาเวลาที่เหมาะสมกว่านี้');
+    }
+
+    // Long-term health benefits
+    if (monthlyCompletedSessions >= 50) {
+      insights.add('ทำครบ 50 ครั้งแล้ว! ร่างกายน่าจะแข็งแรงขึ้นเยอะ');
+    } else if (monthlyCompletedSessions >= 30) {
+      insights.add('ใกล้ครบ 50 ครั้งแล้ว พยายามต่อไป!');
+    }
+  }
+
+  /// Get best performing day of the week
+  String getBestPerformingDay() {
+    const dayNames = [
+      'อาทิตย์',
+      'จันทร์',
+      'อังคาร',
+      'พุธ',
+      'พฤหัสบดี',
+      'ศุกร์',
+      'เสาร์'
+    ];
+    final dayStats = <int, int>{};
+
+    // Initialize all days with 0
+    for (int i = 0; i < 7; i++) {
+      dayStats[i] = 0;
+    }
+
+    // Count completed sessions by day of week
+    for (final session in _monthlySessions) {
+      if (session.status == SessionStatusHive.completed) {
+        final weekday = session.scheduledTime.weekday % 7;
+        dayStats[weekday] = (dayStats[weekday] ?? 0) + 1;
+      }
+    }
+
+    if (dayStats.values.every((count) => count == 0)) {
+      return 'ยังไม่มีข้อมูล';
+    }
+
+    final bestDay =
+        dayStats.entries.reduce((a, b) => a.value > b.value ? a : b);
+    return dayNames[bestDay.key];
+  }
+
+  /// Get worst performing day of the week
+  String getWorstPerformingDay() {
+    const dayNames = [
+      'อาทิตย์',
+      'จันทร์',
+      'อังคาร',
+      'พุธ',
+      'พฤหัสบดี',
+      'ศุกร์',
+      'เสาร์'
+    ];
+    final dayStats = <int, int>{};
+
+    // Initialize all days with 0
+    for (int i = 0; i < 7; i++) {
+      dayStats[i] = 0;
+    }
+
+    // Count completed sessions by day of week
+    for (final session in _monthlySessions) {
+      if (session.status == SessionStatusHive.completed) {
+        final weekday = session.scheduledTime.weekday % 7;
+        dayStats[weekday] = (dayStats[weekday] ?? 0) + 1;
+      }
+    }
+
+    if (dayStats.values.every((count) => count == 0)) {
+      return 'ยังไม่มีข้อมูล';
+    }
+
+    final worstDay =
+        dayStats.entries.reduce((a, b) => a.value < b.value ? a : b);
+    return dayNames[worstDay.key];
+  }
+
+  /// Get peak activity hour
+  String getPeakActivityHour() {
+    final hourStats = <int, int>{};
+
+    // Count completed sessions by hour
+    for (final session in _monthlySessions) {
+      if (session.status == SessionStatusHive.completed) {
+        final hour = session.scheduledTime.hour;
+        hourStats[hour] = (hourStats[hour] ?? 0) + 1;
+      }
+    }
+
+    if (hourStats.isEmpty) {
+      return 'ยังไม่มีข้อมูล';
+    }
+
+    final peakHour =
+        hourStats.entries.reduce((a, b) => a.value > b.value ? a : b);
+    return '${peakHour.key.toString().padLeft(2, '0')}:00';
+  }
+
+  /// Get completion rate by time of day
+  Map<String, double> getCompletionRateByTimeOfDay() {
+    final timeSlots = <String, List<bool>>{
+      'เช้า (6-12)': [],
+      'บ่าย (12-18)': [],
+      'เย็น (18-24)': [],
+    };
+
+    for (final session in _monthlySessions) {
       final hour = session.scheduledTime.hour;
-      hourCounts[hour] = (hourCounts[hour] ?? 0) + 1;
+      final completed = session.status == SessionStatusHive.completed;
+
+      if (hour >= 6 && hour < 12) {
+        timeSlots['เช้า (6-12)']!.add(completed);
+      } else if (hour >= 12 && hour < 18) {
+        timeSlots['บ่าย (12-18)']!.add(completed);
+      } else if (hour >= 18 && hour < 24) {
+        timeSlots['เย็น (18-24)']!.add(completed);
+      }
     }
 
-    if (hourCounts.isEmpty) return 'ไม่มีข้อมูล';
-
-    // Find best hour
-    final bestHour =
-        hourCounts.entries.reduce((a, b) => a.value > b.value ? a : b).key;
-
-    return '${bestHour.toString().padLeft(2, '0')}:00-${(bestHour + 1).toString().padLeft(2, '0')}:00';
-  }
-
-  /// Get average session duration
-  String getAverageSessionDuration() {
-    final completedSessions = DatabaseService.instance
-        .getSessionsForLastWeek()
-        .where((s) => s.sessionDuration != null)
-        .toList();
-
-    if (completedSessions.isEmpty) return 'ไม่มีข้อมูล';
-
-    final totalDuration = completedSessions
-        .map((s) => s.sessionDuration!.inSeconds)
-        .reduce((a, b) => a + b);
-
-    final averageSeconds = totalDuration / completedSessions.length;
-    final averageMinutes = (averageSeconds / 60).round();
-
-    if (averageMinutes < 1) {
-      return '${averageSeconds.round()} วินาที';
-    } else {
-      return '$averageMinutes นาที';
+    final rates = <String, double>{};
+    for (final entry in timeSlots.entries) {
+      if (entry.value.isEmpty) {
+        rates[entry.key] = 0.0;
+      } else {
+        final completed = entry.value.where((c) => c).length;
+        rates[entry.key] = completed / entry.value.length;
+      }
     }
+
+    return rates;
   }
 
-  /// Get weekly trend (improving, declining, stable)
-  String getWeeklyTrend() {
-    final sessions = DatabaseService.instance.getSessionsForLastWeek();
-    if (sessions.length < 2) return 'ไม่เพียงพอ';
-
-    // Split into first half and second half of week
-    final midPoint = sessions.length ~/ 2;
-    final firstHalf = sessions.sublist(0, midPoint);
-    final secondHalf = sessions.sublist(midPoint);
-
-    final firstHalfRate = firstHalf.isNotEmpty
-        ? firstHalf.where((s) => s.isCompleted).length / firstHalf.length
-        : 0.0;
-    final secondHalfRate = secondHalf.isNotEmpty
-        ? secondHalf.where((s) => s.isCompleted).length / secondHalf.length
-        : 0.0;
-
-    final difference = secondHalfRate - firstHalfRate;
-
-    if (difference > 0.1) {
-      return 'ดีขึ้น 📈';
-    } else if (difference < -0.1) {
-      return 'ลดลง 📉';
-    } else {
-      return 'คงที่ 📊';
-    }
-  }
-
-  /// Get streak (consecutive days with completed sessions)
+  /// Calculate streak (consecutive days with completed sessions)
   int getCurrentStreak() {
-    final today = DateTime.now();
+    if (_monthlySessions.isEmpty) return 0;
+
+    final now = DateTime.now();
     int streak = 0;
 
     for (int i = 0; i < 30; i++) {
-      // Check last 30 days
-      final date = today.subtract(Duration(days: i));
-      final sessions = getSessionsForDate(date);
+      final day = now.subtract(Duration(days: i));
+      final hasCompletedSession = _monthlySessions.any((session) =>
+          session.scheduledTime.year == day.year &&
+          session.scheduledTime.month == day.month &&
+          session.scheduledTime.day == day.day &&
+          session.status == SessionStatusHive.completed);
 
-      if (sessions.isNotEmpty && sessions.any((s) => s.isCompleted)) {
+      if (hasCompletedSession) {
         streak++;
       } else {
-        break; // Streak broken
+        break;
       }
     }
 
     return streak;
   }
 
-  /// Get weekly completion rates for chart
-  List<Map<String, dynamic>> getWeeklyChartData() {
-    final chartData = <Map<String, dynamic>>[];
+  /// Get longest streak this month
+  int getLongestStreak() {
+    if (_monthlySessions.isEmpty) return 0;
 
-    for (int i = 6; i >= 0; i--) {
-      final date = DateTime.now().subtract(Duration(days: i));
-      final sessions = getSessionsForDate(date);
-      final completionRate = getCompletionRateForDate(date);
+    final now = DateTime.now();
+    final startOfMonth = DateTime(now.year, now.month, 1);
+    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
 
-      chartData.add({
-        'date': date,
-        'day': _getDayName(date.weekday),
-        'total': sessions.length,
-        'completed': sessions.where((s) => s.isCompleted).length,
-        'rate': completionRate,
-      });
+    final dailyCompletion = <bool>[];
+
+    for (int day = 1; day <= daysInMonth; day++) {
+      final date = DateTime(now.year, now.month, day);
+      final hasCompleted = _monthlySessions.any((session) =>
+          session.scheduledTime.year == date.year &&
+          session.scheduledTime.month == date.month &&
+          session.scheduledTime.day == date.day &&
+          session.status == SessionStatusHive.completed);
+      dailyCompletion.add(hasCompleted);
     }
 
-    return chartData;
-  }
+    int maxStreak = 0;
+    int currentStreak = 0;
 
-  /// Get pain point usage statistics
-  Map<String, int> getPainPointUsage() {
-    final sessions = DatabaseService.instance.getSessionsForLastWeek();
-    final usage = <String, int>{};
-
-    for (final session in sessions) {
-      final painPoint = DatabaseService.instance
-          .getAllPainPoints()
-          .where((p) => p.id == session.painPointId)
-          .firstOrNull;
-
-      if (painPoint != null) {
-        usage[painPoint.name] = (usage[painPoint.name] ?? 0) + 1;
+    for (final completed in dailyCompletion) {
+      if (completed) {
+        currentStreak++;
+        maxStreak = maxStreak < currentStreak ? currentStreak : maxStreak;
+      } else {
+        currentStreak = 0;
       }
     }
 
-    return usage;
+    return maxStreak;
   }
 
-  /// Get hourly distribution
-  Map<int, int> getHourlyDistribution() {
-    final sessions = DatabaseService.instance.getSessionsForLastWeek();
-    final distribution = <int, int>{};
+  /// Get summary statistics
+  Map<String, dynamic> getSummaryStats() {
+    return {
+      // Current period stats
+      'todayTotal': todayTotalSessions,
+      'todayCompleted': todayCompletedSessions,
+      'todayRate': todayCompletionRate,
 
-    for (final session in sessions) {
-      final hour = session.scheduledTime.hour;
-      distribution[hour] = (distribution[hour] ?? 0) + 1;
-    }
+      'weeklyTotal': weeklyTotalSessions,
+      'weeklyCompleted': weeklyCompletedSessions,
+      'weeklyRate': weeklyCompletionRate,
 
-    return distribution;
-  }
+      'monthlyTotal': monthlyTotalSessions,
+      'monthlyCompleted': monthlyCompletedSessions,
+      'monthlyRate': monthlyCompletionRate,
 
-  /// Export statistics as text
-  String exportStatistics() {
-    final buffer = StringBuffer();
-    buffer.writeln('📊 Office Syndrome Helper - สถิติการใช้งาน');
-    buffer.writeln('=' * 50);
-    buffer.writeln();
+      // Derived stats
+      'activeDays': activeDaysThisMonth,
+      'avgPerDay': averageSessionsPerDay,
+      'currentStreak': getCurrentStreak(),
+      'longestStreak': getLongestStreak(),
 
-    buffer.writeln('📅 วันนี้:');
-    buffer.writeln('  • แจ้งเตือนทั้งหมด: $todayTotalSessions ครั้ง');
-    buffer.writeln('  • ทำเสร็จ: $todayCompletedSessions ครั้ง');
-    buffer.writeln('  • ข้าม: $todaySkippedSessions ครั้ง');
-    buffer.writeln('  • เลื่อน: $todaySnoozedSessions ครั้ง');
-    buffer.writeln(
-        '  • อัตราความสำเร็จ: ${(todayCompletionRate * 100).toStringAsFixed(1)}%');
-    buffer.writeln();
-
-    buffer.writeln('📈 สัปดาห์นี้:');
-    buffer.writeln('  • แจ้งเตือนทั้งหมด: $weeklyTotalSessions ครั้ง');
-    buffer.writeln('  • ทำเสร็จ: $weeklyCompletedSessions ครั้ง');
-    buffer.writeln(
-        '  • อัตราความสำเร็จ: ${(weeklyCompletionRate * 100).toStringAsFixed(1)}%');
-    buffer.writeln('  • จุดที่ดูแลบ่อยสุด: ${getMostCommonPainPoint()}');
-    buffer.writeln('  • ช่วงเวลาที่ดีสุด: ${getBestTimeOfDay()}');
-    buffer.writeln('  • เวลาเฉลี่ยต่อครั้ง: ${getAverageSessionDuration()}');
-    buffer.writeln('  • แนวโน้ม: ${getWeeklyTrend()}');
-    buffer.writeln('  • Streak: ${getCurrentStreak()} วัน');
-    buffer.writeln();
-
-    buffer.writeln('สร้างเมื่อ: ${DateTime.now()}');
-
-    return buffer.toString();
-  }
-
-  /// Refresh statistics
-  @override
-  Future<void> refresh() async {
-    await loadStatistics();
-  }
-
-  /// Clear old statistics (keep only last 30 days)
-  Future<void> cleanupOldData() async {
-    try {
-      await DatabaseService.instance.cleanupOldSessions();
-      await loadStatistics();
-
-      Get.snackbar('ล้างข้อมูลแล้ว', 'ลบข้อมูลเก่าที่เก็บไว้เกิน 30 วัน');
-    } catch (e) {
-      debugPrint('❌ Cleanup error: $e');
-      Get.snackbar('Error', 'เกิดข้อผิดพลาด: $e');
-    }
-  }
-
-  /// Get day name in Thai
-  String _getDayName(int day) {
-    const dayNames = {
-      1: 'จ',
-      2: 'อ',
-      3: 'พ',
-      4: 'พฤ',
-      5: 'ศ',
-      6: 'ส',
-      7: 'อา',
+      // Performance analysis
+      'bestDay': getBestPerformingDay(),
+      'worstDay': getWorstPerformingDay(),
+      'peakHour': getPeakActivityHour(),
+      'timeSlotRates': getCompletionRateByTimeOfDay(),
     };
-    return dayNames[day] ?? '';
   }
 
-  /// Get motivation message based on stats
-  String getMotivationMessage() {
-    final completionRate = todayCompletionRate;
-    final streak = getCurrentStreak();
+  /// Export statistics data
+  Map<String, dynamic> exportStatistics() {
+    return {
+      'exportDate': DateTime.now().toIso8601String(),
+      'period': '30 days',
+      'summary': getSummaryStats(),
+      'sessions': _monthlySessions
+          .map((session) => {
+                'id': session.id,
+                'scheduledTime': session.scheduledTime.toIso8601String(),
+                'painPointId': session.painPointId,
+                'treatmentIds': session.treatmentIds,
+                'status': session.status.name,
+                'completedTime': session.completedTime?.toIso8601String(),
+                'snoozeCount': session.snoozeCount,
+              })
+          .toList(),
+    };
+  }
 
-    if (streak >= 7) {
-      return 'เยี่ยมมาก! 🔥 คุณดูแลสุขภาพมาแล้ว $streak วันติดต่อกัน!';
-    } else if (completionRate >= 0.8) {
-      return 'ทำได้ดีมาก! 💪 วันนี้ทำครบ ${(completionRate * 100).toInt()}% แล้ว';
-    } else if (completionRate >= 0.5) {
-      return 'กำลังใจให้! 😊 อีกนิดนึงก็ครบเป้าแล้ว';
-    } else if (completionRate > 0) {
-      return 'เริ่มต้นที่ดี! 🌱 ทำต่อเนื่องจะดีต่อสุขภาพ';
+  /// Check if today's goal is met (configurable)
+  bool isTodayGoalMet({int goalSessions = 3}) {
+    return todayCompletedSessions >= goalSessions;
+  }
+
+  /// Check if weekly goal is met (configurable)
+  bool isWeeklyGoalMet({int goalSessions = 15}) {
+    return weeklyCompletedSessions >= goalSessions;
+  }
+
+  /// Get motivational message based on performance
+  String getMotivationalMessage() {
+    final todayRate = todayCompletionRate;
+    final weeklyRate = weeklyCompletionRate;
+    final currentStreak = getCurrentStreak();
+
+    if (currentStreak >= 7) {
+      return '🔥 Streak ${currentStreak} วัน! คุณเจ็บมาก!';
+    } else if (currentStreak >= 3) {
+      return '⭐ ทำได้ดี! Streak ${currentStreak} วันแล้ว';
+    }
+
+    if (todayRate == 1.0 && todayTotalSessions > 0) {
+      return '🎯 วันนี้เพอร์เฟ็ค! ทำได้ทุกครั้ง';
+    } else if (weeklyRate >= 0.8) {
+      return '💪 สัปดาห์นี้แข็งแรงมาก เก่งจริงๆ';
+    } else if (weeklyRate >= 0.6) {
+      return '👍 ทำได้ดี แต่ยังปรับปรุงได้อีก';
+    } else if (weeklyRate >= 0.3) {
+      return '📈 กำลังดีขึ้น มาพยายามต่อกัน';
     } else {
-      return 'มาเริ่มดูแลสุขภาพกันเถอะ! 🚀 แค่ 2-3 นาทีก็ได้ผล';
+      return '🚀 มาเริ่ม แค่เล็กน้อยก็มีผลแล้ว';
+    }
+  }
+
+  /// Reset all statistics (for testing)
+  Future<void> resetStatistics() async {
+    try {
+      _todaySessions.clear();
+      _weeklySessions.clear();
+      _monthlySessions.clear();
+
+      debugPrint('📊 Statistics reset');
+    } catch (e) {
+      debugPrint('❌ Error resetting statistics: $e');
     }
   }
 }

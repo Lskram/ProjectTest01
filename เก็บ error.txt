@@ -1,0 +1,18 @@
+PS D:\Project2\ProjectTest01\android\app> keytool -genkey -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias office-syndrome-helper
+keytool : The term 'keytool' is not recognized as the name of a cmdlet, function, script file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
+At line:1 char:1
++ keytool -genkey -v -keystore upload-keystore.jks -keyalg RSA -keysize ...
++ ~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (keytool:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+
+PS D:\Project2\ProjectTest01\android\app> flutter packages pub run build_runner build --delete-conflicting-outputs
+Deprecated. Use `dart run` instead.
+Unhandled exception:
+Bad state: Unable to generate package graph, no `pubspec.yaml` found. This program must be ran from the root directory of your package.
+#0      PackageGraph.forPath (package:build_runner_core/src/package_graph/package_graph.dart:74:7)
+#1      PackageGraph.forThisPackage (package:build_runner_core/src/package_graph/package_graph.dart:174:20)
+#2      main (file:///C:/Users/UsEr/AppData/Local/Pub/Cache/hosted/pub.dev/build_runner-2.5.4/bin/build_runner.dart:27:24)
+#3      _delayEntrypointInvocation.<anonymous closure> (dart:isolate-patch/isolate_patch.dart:312:33)
+#4      _RawReceivePort._handleMessage (dart:isolate-patch/isolate_patch.dart:193:12)
+Failed to update packages.
